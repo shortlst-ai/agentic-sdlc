@@ -274,13 +274,30 @@ test('launching again refuses a build that\'s running or stuck, and restarts one
   c.sessions([{ ...session, status: 'busy', state: 'working' }]);
   assert.match(c.sdlc(c.root, 'launch', 'csv').stderr, /still running/);
 
-  c.sessions([{ ...session, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
-  assert.match(c.sdlc(c.root, 'launch', 'csv').stderr, /claude attach sdlc-csv/);
+  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
+  const blocked = c.sdlc(c.root, 'launch', 'csv').stderr;
+  assert.match(blocked, /waiting on you, at a permission prompt or a question: run claude attach sdlc-csv/);
+  assert.doesNotMatch(blocked, /undefined/);
 
   c.sessions([{ ...session, status: 'idle', state: 'working' }]);
   assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
   assert.match(c.calls(), /stop abc/);
   assert.equal(c.calls().match(/--bg/g).length, 2);
+});
+
+test('launching waits for Claude\'s settings to be committed, or the build would start without the plugin', (t) => {
+  const c = repo(t);
+  approvedDraft(c);
+  const settings = path.join(c.root, '.claude', 'settings.json');
+  fs.writeFileSync(settings, fs.readFileSync(settings, 'utf8').replace('}', ', "enabledPlugins": {}\n}'));
+  const refused = c.sdlc(c.root, 'launch', 'csv');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /commit \.claude\/settings\.json first/);
+  assert.ok(fs.existsSync(itemFile(c.root, 'spec.md')), 'the draft stays here');
+  assert.doesNotMatch(c.calls(), /--bg/);
+
+  c.git(c.root, 'commit', '-q', '-m', 'settings', '--', '.claude/settings.json');
+  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
 });
 
 test('launching can\'t get past a gate that reopened', (t) => {
@@ -308,8 +325,8 @@ test('a change can be named by its slug', (t) => {
 test('status on the main session shows each build and its session', (t) => {
   const c = repo(t);
   const dir = launched(c);
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
-  assert.match(c.sdlc(c.root, 'status').stdout, /0001-csv .*session waiting on a permission prompt/);
+  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'blocked' }]);
+  assert.match(c.sdlc(c.root, 'status').stdout, /0001-csv .*session waiting on you/);
   c.sessions([]);
   assert.match(c.sdlc(c.root, 'status').stdout, /session stopped/);
 });
@@ -598,8 +615,11 @@ test('a main session hears when a build is stuck or has stopped', async (t) => {
   const dir = launched(c);
   const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
 
-  c.sessions([{ ...session, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
-  assert.match((await outcome(watch(c, c.root))).stderr, /waiting on a permission prompt/);
+  // The shape `claude agents --json` gives a session at a prompt: no detail on what it's asking.
+  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
+  const stuck = (await outcome(watch(c, c.root))).stderr;
+  assert.match(stuck, /0001-csv is waiting on you, at a permission prompt or a question, so run claude attach sdlc-csv/);
+  assert.doesNotMatch(stuck, /undefined/);
 
   c.sessions([]);
   assert.match((await outcome(watch(c, c.root))).stderr, /stopped at build/);
@@ -623,13 +643,13 @@ test('a main session isn\'t told the same thing twice, or woken by a healthy bui
   c.sessions([{ ...session, status: 'busy', state: 'working' }]);
   assert.equal((await outcome(watch(c, c.root), 400)).code, null);
 
-  c.sessions([{ ...session, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
+  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
   assert.equal((await outcome(watch(c, c.root))).code, 2);
   assert.equal((await outcome(watch(c, c.root), 400)).code, null);
 
   c.sessions([{ ...session, status: 'busy', state: 'working' }]);
   await outcome(watch(c, c.root), 1000);
-  c.sessions([{ ...session, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
+  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
   assert.equal((await outcome(watch(c, c.root))).code, 2, 'stuck again is news again');
 });
 

@@ -1,7 +1,7 @@
 {
   "name": "sdlc",
   "displayName": "Agentic SDLC",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Moves each change through committed artifacts and gates, from intent to a merged pull request",
   "author": {
     "name": "Xinming An",

@@ -22,6 +22,10 @@ const START_PROMPT = '/sdlc:next';
 // the same work and leave nothing behind.
 const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0' } });
 const CLAUDE_TIMEOUT_MS = 60000;
+const SETTINGS = path.join('.claude', 'settings.json');
+
+// `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
+const BLOCKED = 'waiting on you, at a permission prompt or a question';
 
 function slugOf(item) {
   return item.id.replace(/^\d+-/, '');
@@ -79,7 +83,7 @@ function describeSession(sessions, dir) {
   if (sessions === null) return null;
   const [session] = sessionsAt(sessions, dir);
   const state = sessionState(session);
-  return state === 'blocked' ? `waiting on a ${session.waitingFor ?? 'person'}` : state;
+  return state === 'blocked' ? 'waiting on you' : state;
 }
 
 function stopSessions(dir) {
@@ -144,6 +148,11 @@ function promote(root, { item }) {
   if (git(root, ['ls-files', '--', path.join('.sdlc', 'work', item.id)])) {
     throw new SdlcError(`${item.id} is committed on ${item.branch}, so it can't be moved to a worktree`);
   }
+  // The worktree starts from the last commit. Without the plugin enabled there, its
+  // session can't even run the start prompt, and builds with no hooks.
+  if (git(root, ['status', '--porcelain', '--', SETTINGS])) {
+    throw new SdlcError(`commit ${SETTINGS} first: ${item.id}'s worktree starts from the last commit, so its build wouldn't get your changes`);
+  }
   const branch = `worktree-${slugOf(item)}`;
   const dir = path.join(root, '.claude', 'worktrees', slugOf(item));
   const base = latestCommit(root, item.branch);
@@ -169,7 +178,7 @@ function refuseIfRunning({ root: dir, item }) {
   const state = sessionState(session);
   if (state === 'running') throw new SdlcError(`${item.id} is still running`);
   if (state === 'blocked') {
-    throw new SdlcError(`${item.id} is waiting on a ${session.waitingFor}: run claude attach ${sessionName(item)}`);
+    throw new SdlcError(`${item.id} is ${BLOCKED}: run claude attach ${sessionName(item)}`);
   }
 }
 
@@ -327,7 +336,7 @@ function attention({ root: dir, item }, sessions) {
   if (state === 'running') return null;
   if (!isOpen(item)) return `${item.id} has finished, so it's ready to merge.`;
   if (state === 'blocked') {
-    return `${item.id} is waiting on a ${session.waitingFor}, so run claude attach ${sessionName(item)}.`;
+    return `${item.id} is ${BLOCKED}, so run claude attach ${sessionName(item)} in a terminal.`;
   }
   return `${item.id} stopped at ${item.stage} with work left, so use /sdlc:launch ${slugOf(item)}.`;
 }

@@ -55,6 +55,21 @@ at_small_spec() {
   commit 'Approve the intent'
 }
 
+# Past the intent gate on a change to how three modules work together.
+at_layered_spec() {
+  on_a_worktree_branch
+  mkdir -p shop
+  printf 'from shop import service\n\n\ndef get_customer(customer_id):\n    return service.find(customer_id)\n\n\ndef update_customer(customer_id, fields):\n    return service.update(customer_id, fields)\n' >shop/api.py
+  printf 'from shop import store\n\n\ndef find(customer_id):\n    return store.load(customer_id)\n\n\ndef update(customer_id, fields):\n    return store.save(customer_id, fields)\n' >shop/service.py
+  printf 'import sqlite3\n\nDB = sqlite3.connect("shop.db")\n\n\ndef load(customer_id):\n    return DB.execute("select * from customers where id = ?", (customer_id,)).fetchone()\n\n\ndef save(customer_id, fields):\n    DB.execute("update customers set name = ? where id = ?", (fields["name"], customer_id))\n' >shop/store.py
+  commit 'Add the shop'
+  sdlc new feature >/dev/null
+  printf '# Intent\n\nEvery customer lookup goes from the API through the service to the database, and the database is slow. Cache lookups in the service for 60 seconds, and drop a customer from the cache when they are updated, so nobody sees stale data after an update.\n' >"$ITEM/intent.md"
+  approval intent intent.md
+  sdlc advance >/dev/null
+  commit 'Approve the intent'
+}
+
 at_spec_gate() {
   base_repo
   git switch -q -c worktree-feature

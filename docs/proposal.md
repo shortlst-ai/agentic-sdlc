@@ -210,9 +210,9 @@ The first real change on one path had a 2,200-word spec for about 80 lines of so
 | Lead with the decision | `spec.md` opens with "What you're approving", in up to 10 lines, which is all the gate shows |
 | Check length in code | `sdlc status` gives the word count at a gate, and warns past 250 words for an intent, or 350 for a spec plus 150 a slice. The lead sends a spec back once to cut |
 | Re-approve from a diff | An approval keeps a copy of the text, so `sdlc diff` shows only what changed |
-| Diagrams by rule | Only for a flow across parts, a state machine, or a call sequence, and only to replace prose. The reviewer checks it against the code |
+| Diagrams where they fit | Whenever a change affects how parts connect, a flow, or states, up to two, replacing prose. They don't count toward the length. The reviewer checks each against the code |
 
-Length is a warning, not a refusal, because some changes really are larger. Diagrams aren't the default because Mermaid shows as source in a terminal, and a wrong diagram is harder to catch than a wrong sentence.
+Length is a warning, not a refusal, because some changes really are larger. Diagrams are read in a Markdown viewer or on GitHub, since Mermaid shows as source in a terminal, so the gate says when a spec has one. A wrong diagram is harder to catch than a wrong sentence, which is why the reviewer checks them.
 
 ---
 

@@ -29,7 +29,7 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 At an approval, show the least the person needs:
 
 - If `next.stale` is set, the file changed after it was approved. Run `sdlc diff <name of this item>` and show its output, rather than the whole file. If it says no copy was kept, show the file.
-- Otherwise, for `spec.md`, show its `## What you're approving` section and the concerns it flags, and give the file's path for the rest. For anything else, show the file.
+- Otherwise, for `spec.md`, show its `## What you're approving` section and the concerns it flags, and give the file's path for the rest. If it has a diagram, say so: it shows as code here, so the person opens the file in a Markdown viewer to see it. For anything else, show the file.
 - Say how many words it is, from `next.words`, and pass on anything in `next.warnings`.
 
 At `build`, `next.action` is always `advance`, because the stage has no file to wait for. Use `/sdlc:build` first, and advance only once the work is done.

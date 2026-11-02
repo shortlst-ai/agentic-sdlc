@@ -58,7 +58,14 @@ Say what changes, not how you worked it out. Leave out how the code works now, d
 
 ### Diagrams
 
-Draw one only when the change alters a flow across two or more parts of the system, a state machine, or a sequence of calls, and it replaces prose that says the same thing. Never for a change to one file. Use at most one, as a Mermaid block of no more than about 15 lines. It never replaces the acceptance criteria, which are what the build is held to.
+People read the spec in a Markdown viewer that draws Mermaid, so a diagram is often the quickest way to show a change. Draw one whenever the change affects how parts connect, a flow of data or calls, or states and the moves between them: anything prose would need more than a few sentences for. What counts is the behaviour, not how many files change: a cache added in one file still changes the path every request takes.
+
+- Put it straight after "What you're approving", under `## How it fits`
+- Show what changes. Use a before and after pair if the structure changes, or one diagram with the new parts marked
+- Use at most two, each a Mermaid block of no more than about 15 lines, labelled in plain words
+- Let it replace the prose that says the same thing, but never the acceptance criteria, which are what the build is held to
+
+Skip it when nothing about how the parts work together changes, such as a fix inside one function, or to wording.
 
 ## notes.md
 

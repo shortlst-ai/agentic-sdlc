@@ -23,6 +23,9 @@ const START_PROMPT = '/sdlc:next';
 const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0' } });
 const CLAUDE_TIMEOUT_MS = 60000;
 
+// `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
+const BLOCKED = 'waiting on you, at a permission prompt or a question';
+
 function slugOf(item) {
   return item.id.replace(/^\d+-/, '');
 }
@@ -79,7 +82,7 @@ function describeSession(sessions, dir) {
   if (sessions === null) return null;
   const [session] = sessionsAt(sessions, dir);
   const state = sessionState(session);
-  return state === 'blocked' ? `waiting on a ${session.waitingFor ?? 'person'}` : state;
+  return state === 'blocked' ? 'waiting on you' : state;
 }
 
 function stopSessions(dir) {
@@ -169,7 +172,7 @@ function refuseIfRunning({ root: dir, item }) {
   const state = sessionState(session);
   if (state === 'running') throw new SdlcError(`${item.id} is still running`);
   if (state === 'blocked') {
-    throw new SdlcError(`${item.id} is waiting on a ${session.waitingFor}: run claude attach ${sessionName(item)}`);
+    throw new SdlcError(`${item.id} is ${BLOCKED}: run claude attach ${sessionName(item)}`);
   }
 }
 
@@ -327,7 +330,7 @@ function attention({ root: dir, item }, sessions) {
   if (state === 'running') return null;
   if (!isOpen(item)) return `${item.id} has finished, so it's ready to merge.`;
   if (state === 'blocked') {
-    return `${item.id} is waiting on a ${session.waitingFor}, so run claude attach ${sessionName(item)}.`;
+    return `${item.id} is ${BLOCKED}, so run claude attach ${sessionName(item)} in a terminal.`;
   }
   return `${item.id} stopped at ${item.stage} with work left, so use /sdlc:launch ${slugOf(item)}.`;
 }

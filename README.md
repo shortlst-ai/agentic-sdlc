@@ -1,3 +1,5 @@
+<p align="center"><img src="plugins/sdlc/assets/wordmark.png" alt="agentic sdlc" width="480"></p>
+
 # Agentic-SDLC: a software factory that takes each change from idea to merged pull request
 
 [![ci](https://github.com/shortlst-ai/agentic-sdlc/actions/workflows/ci.yml/badge.svg)](https://github.com/shortlst-ai/agentic-sdlc/actions/workflows/ci.yml)

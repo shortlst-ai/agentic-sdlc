@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { describe, test } = require('node:test');
 
-const { outOfScope, parseScope, parseSlices } = require('../plugins/sdlc/lib/check');
+const { documentWarnings, outOfScope, parseScope, parseSlices, proseWords } = require('../plugins/sdlc/lib/check');
 
 const PLUGIN = path.join(__dirname, '..', 'plugins', 'sdlc');
 const CLI = path.join(PLUGIN, 'bin', 'sdlc');
@@ -89,6 +89,49 @@ function stop(cwd, extra = {}) {
   const input = { cwd, agent_type: 'sdlc:builder', agent_id: 'a1', ...extra };
   return spawnSync('node', [HOOK, 'subagent-stop'], { input: JSON.stringify(input), encoding: 'utf8', env: env() });
 }
+
+describe('documents a person reads', () => {
+  const words = (count) => Array.from({ length: count }, () => 'word').join(' ');
+  const spec = (body, slices = 1) => {
+    const blocks = Array.from({ length: slices }, (_, i) => `### S${i + 1}: Step\n\n\`\`\`scope\nsrc/${i}.py\n\`\`\`\n`);
+    return `# Spec\n\n## What you're approving\n\nOne change.\n\n## Details\n\n${body}\n\n${blocks.join('\n')}`;
+  };
+
+  test('a short spec that opens with what is approved gets no warning', () => {
+    assert.deepEqual(documentWarnings('spec.md', spec(words(100))), []);
+  });
+
+  test('a spec that buries what is approved is flagged', () => {
+    const [warning] = documentWarnings('spec.md', '# Spec\n\n## Problem\n\nSomething.\n');
+    assert.match(warning, /doesn't open with "## What you're approving"/);
+  });
+
+  test('a summary that runs long is flagged', () => {
+    const long = Array.from({ length: 13 }, (_, i) => `- point ${i}`).join('\n');
+    const [warning] = documentWarnings('spec.md', `## What you're approving\n\n${long}\n\n## Details\n`);
+    assert.match(warning, /runs past 12 lines/);
+  });
+
+  test('the word limit grows with the slices, and code blocks are free', () => {
+    assert.match(documentWarnings('spec.md', spec(words(400))).join(), /over the 350 for one slice/);
+    assert.deepEqual(documentWarnings('spec.md', spec(words(400), 3)), []);
+    assert.match(documentWarnings('spec.md', spec(words(700), 3)).join(), /over the 650 for 3 slices/);
+    assert.equal(proseWords(`two words\n\`\`\`scope\n${words(500)}\n\`\`\`\n`), 2);
+  });
+
+  test('an intent past one screen is flagged', () => {
+    assert.deepEqual(documentWarnings('intent.md', words(200)), []);
+    assert.match(documentWarnings('intent.md', words(300)).join(), /300 words, over the 250/);
+  });
+
+  test('status shows the length and warnings at a gate', (t) => {
+    const cwd = repo(t);
+    assert.equal(sdlc(cwd, 'new', 'feature').status, 0);
+    touch(cwd, `.sdlc/work/${ID}/intent.md`, words(300));
+    const shown = sdlc(cwd, 'status').stdout;
+    assert.match(shown, /\(300 words\)\n  Warning: intent\.md is 300 words/);
+  });
+});
 
 describe('parseScope', () => {
   test('reads globs from every scope block', () => {
@@ -279,7 +322,8 @@ describe('slices', () => {
     const cwd = atBuild(t);
     touch(cwd, `.sdlc/work/${ID}/spec.md`, `${SPEC}\nOne more thing.\n`);
     const [item] = JSON.parse(sdlc(cwd, 'status', '--json').stdout).items;
-    assert.deepEqual(item.next, { action: 'approve', stage: 'spec', artifact: 'spec.md', stale: true });
+    const { action, stage, artifact, stale } = item.next;
+    assert.deepEqual({ action, stage, artifact, stale }, { action: 'approve', stage: 'spec', artifact: 'spec.md', stale: true });
     touch(cwd, 'src/api/a.py');
     passReview(cwd);
     assert.match(sdlc(cwd, 'advance').stderr, /a person must type \/sdlc:approve again/);

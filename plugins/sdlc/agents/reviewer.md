@@ -16,6 +16,7 @@ Check that:
 - Failure paths are handled
 - There are no security problems, such as missing auth checks, or secrets in logs or errors
 - It follows the patterns in CLAUDE.md and the existing code
+- Any diagram in the spec matches what the code does. A mismatch is a finding
 
 Report, every time, in this format:
 

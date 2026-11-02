@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseArgs } = require('node:util');
 
-const { reviewBuild, reviewSlices, sizeWarnings } = require('./check');
+const { documentWarnings, proseWords, reviewBuild, reviewSlices, sizeWarnings } = require('./check');
 const { runGates } = require('./gates');
 const machine = require('./machine');
 const { coverage, detect, intentFor, slugFor } = require('./detect');
@@ -28,6 +28,7 @@ Commands:
   new <slug> [--files a,b] [--track critical]
                                      Start a work item. Critical paths add sign-offs
   status [<id>] [--json]             Show work items and the next action
+  diff [<id>]                        Show what changed in a document since its approval
   changed [<id>]                     List the files this item has changed
   check [<id>]                       Compare the real diff to the spec's scope
   verify [<id>]                      Run the verify command and record evidence
@@ -84,9 +85,27 @@ function parseTrack(track) {
   return track;
 }
 
+// What a person is asked to read at a gate: how long it is, and what would make it
+// easier to read.
+function forReading(root, item, next) {
+  if (next.action !== 'approve') return next;
+  const text = workspace.readArtifact(root, item, next.artifact);
+  if (text === null) return next;
+  return { ...next, words: proseWords(text), warnings: documentWarnings(next.artifact, text) };
+}
+
+function nextOf(root, item) {
+  return forReading(root, item, machine.nextAction(item, workspace.readFacts(root, item)));
+}
+
+function describeLine(item, next, where = '') {
+  const length = next.words ? ` (${next.words} words)` : '';
+  const warnings = (next.warnings ?? []).map((warning) => `\n  Warning: ${warning}`).join('');
+  return `${item.id}  ${item.track}  ${item.stage}  next: ${machine.describeNext(next)}${length}${where}${warnings}`;
+}
+
 function describe(root, item) {
-  const next = machine.nextAction(item, workspace.readFacts(root, item));
-  return { id: item.id, track: item.track, stage: item.stage, rework: item.rework, next };
+  return { id: item.id, track: item.track, stage: item.stage, rework: item.rework, next: nextOf(root, item) };
 }
 
 function record(item, event) {
@@ -128,14 +147,11 @@ function status(positionals, values) {
   if (items.length === 0 && elsewhere.length === 0) {
     console.log(workspace.listIds(root).length === 0 ? 'No work items yet.' : 'No open work items.');
   }
-  for (const item of items) {
-    console.log(`${item.id}  ${item.track}  ${item.stage}  next: ${machine.describeNext(item.next)}`);
-  }
+  for (const item of items) console.log(describeLine(item, item.next));
   for (const { root: dir, item } of elsewhere) {
-    const next = machine.nextAction(item, workspace.readFacts(dir, item));
     const session = parallel.describeSession(sessions, dir);
     const where = [`in ${path.relative(root, dir)}`, ...(session ? [`session ${session}`] : [])].join(', ');
-    console.log(`${item.id}  ${item.track}  ${item.stage}  next: ${machine.describeNext(next)}  (${where})`);
+    console.log(describeLine(item, nextOf(dir, item), `  (${where})`));
   }
   return 0;
 }
@@ -153,6 +169,28 @@ function createNew(positionals, values) {
   }
   const item = workspace.createItem(root, slug, track, machine.firstStage(track), files);
   console.log(`${item.id}  ${item.track}  ${item.stage}`);
+  return 0;
+}
+
+// A person re-approving an edited document reads what changed, not all of it again.
+function diff(positionals) {
+  const here = requireRoot();
+  const { root, item } = positionals[0]
+    ? workspace.locateItem(here, positionals[0])
+    : { root: here, item: workspace.activeItem(here) };
+  const next = machine.nextAction(item, workspace.readFacts(root, item));
+  if (!next.stale) throw new SdlcError(`${item.id} has nothing changed since an approval: ${machine.describeNext(next)}`);
+  const approved = workspace.approvedCopy(root, item, next.stage);
+  if (!fs.existsSync(approved)) {
+    throw new SdlcError(`no copy of the approved ${next.artifact} was kept, so read the whole file`);
+  }
+  const current = workspace.artifactPath(root, item, next.artifact);
+  const args = ['diff', '--no-index', '--no-color', '--word-diff=plain', '-U2', approved, current];
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (result.status !== 1) throw new SdlcError(`couldn't compare ${next.artifact}: ${result.stderr.trim()}`);
+  const hunks = result.stdout.slice(result.stdout.indexOf('@@'));
+  console.log(`${item.id}: what changed in ${next.artifact} since it was approved. [-removed-] {+added+}\n`);
+  console.log(hunks.trimEnd());
   return 0;
 }
 
@@ -399,6 +437,7 @@ function dispatch(argv) {
     setup,
     new: createNew,
     status,
+    diff,
     changed,
     check,
     verify,

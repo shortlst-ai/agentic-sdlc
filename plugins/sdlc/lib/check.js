@@ -78,4 +78,57 @@ function sizeWarnings(root, item, config) {
   return warnings;
 }
 
-module.exports = { outOfScope, parseScope, parseSlices, reviewBuild, reviewSlices, sizeWarnings };
+// Also advice. A person approves these, so they're held to what a person will
+// read: the intent fits on a screen, and the spec opens with what's being approved.
+// Code blocks don't count, because the scope blocks are the point.
+const INTENT_WORDS = 250;
+const SPEC_WORDS = 350;
+const SPEC_WORDS_PER_SLICE = 150;
+const SUMMARY_HEADING = "## What you're approving";
+const SUMMARY_LINES = 12;
+
+function proseWords(text) {
+  return text.replace(/^```[\s\S]*?^```/gm, '').split(/\s+/).filter(Boolean).length;
+}
+
+function sectionAfter(text, heading) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => line.trim() === heading);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,3}\s/.test(line));
+  return (end === -1 ? rest : rest.slice(0, end)).filter((line) => line.trim());
+}
+
+function documentWarnings(artifact, text) {
+  if (text === null) return [];
+  const words = proseWords(text);
+  if (artifact === 'intent.md') {
+    return words > INTENT_WORDS ? [`intent.md is ${words} words, over the ${INTENT_WORDS} that fit on one screen.`] : [];
+  }
+  if (artifact !== 'spec.md') return [];
+  const warnings = [];
+  const firstSection = text.split('\n').find((line) => /^##\s/.test(line));
+  if (firstSection?.trim() !== SUMMARY_HEADING) {
+    warnings.push(`spec.md doesn't open with "${SUMMARY_HEADING}", so a person has to read all of it.`);
+  } else if (sectionAfter(text, SUMMARY_HEADING).length > SUMMARY_LINES) {
+    warnings.push(`"${SUMMARY_HEADING}" runs past ${SUMMARY_LINES} lines.`);
+  }
+  const slices = parseSlices(text).length;
+  const limit = SPEC_WORDS + SPEC_WORDS_PER_SLICE * (slices - 1);
+  if (words > limit) {
+    const what = slices === 1 ? 'one slice' : `${slices} slices`;
+    warnings.push(`spec.md is ${words} words, over the ${limit} for ${what}. Move working-out to notes.md.`);
+  }
+  return warnings;
+}
+
+module.exports = {
+  documentWarnings,
+  outOfScope,
+  parseScope,
+  parseSlices,
+  proseWords,
+  reviewBuild,
+  reviewSlices,
+  sizeWarnings,
+};

@@ -370,7 +370,7 @@ function createItem(root, slug, track, stage, files = []) {
 
 // What a sync sets aside. Slice reviews stay, because each slice is as it was, and
 // the final review looks again at how everything fits.
-const SYNC_EVIDENCE = [ARTIFACTS.verify, ARTIFACTS.review, 'approvals/merge.json'];
+const SYNC_EVIDENCE = [ARTIFACTS.verify, ARTIFACTS.review, 'approvals/merge.json', 'approvals/merge.md'];
 
 // Evidence describes code that's about to change, so a rework cycle can't reuse
 // it. Moving it rather than deleting it keeps the failed round in the audit trail.
@@ -385,12 +385,20 @@ function archiveEvidence(root, id, cycle, files = [...SYNC_EVIDENCE, 'evidence/r
   }
 }
 
+// A copy of what was approved, so a later change to it can be shown as a diff
+// instead of the whole file again. Only the exact bytes the hash names are kept.
+function approvedCopy(root, item, stage) {
+  return artifactPath(root, item, `approvals/${stage}.md`);
+}
+
 function saveApproval(root, item, record) {
   const dir = path.join(workDir(root), item.id, 'approvals');
   fs.mkdirSync(dir, { recursive: true });
   writeJson(path.join(dir, `${record.stage}.json`), record);
-  const { stage, sha256, approver, at } = record;
-  const event = { at, approved: stage, sha256, approver };
+  const artifact = artifactPath(root, item, record.artifact);
+  if (sha256(artifact) === record.sha256) fs.copyFileSync(artifact, approvedCopy(root, item, record.stage));
+  const { stage, approver, at } = record;
+  const event = { at, approved: stage, sha256: record.sha256, approver };
   saveItem(root, { ...item, history: [...item.history, event] });
 }
 
@@ -411,8 +419,12 @@ function writeArtifact(root, item, artifact, text) {
   fs.writeFileSync(path.join(workDir(root), item.id, artifact), text);
 }
 
+function artifactPath(root, item, artifact) {
+  return path.join(workDir(root), item.id, artifact);
+}
+
 function readArtifact(root, item, artifact) {
-  const file = path.join(workDir(root), item.id, artifact);
+  const file = artifactPath(root, item, artifact);
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
 }
 
@@ -509,7 +521,9 @@ module.exports = {
   SdlcError,
   UNREACHABLE_WARNING,
   activeItem,
+  approvedCopy,
   archiveEvidence,
+  artifactPath,
   bandsOf,
   changedFiles,
   changedLines,

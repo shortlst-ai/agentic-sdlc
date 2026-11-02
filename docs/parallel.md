@@ -27,5 +27,6 @@ Some limits to know about:
 
 - **You hear about builds while the main session is open and idle.** If you closed it, `/sdlc:status` shows where each one got to.
 - **Background sessions need a trusted folder.** If `/sdlc:launch` says the workspace isn't trusted, run `claude` once in that project, accept the prompt, and launch again. Your work is kept.
-- **Builds use your default permission mode.** A build that stops on a permission prompt shows as blocked, and `claude attach` opens it.
+- **Builds use your default permission mode.** A build that stops on a permission prompt or a question shows as blocked, and `claude attach` opens it. Claude Code doesn't say which it is. `/sdlc:launch` and `/sdlc:sync` restart a blocked build from its last commit.
+- **Stop a build with `claude stop <id>`,** using the id from `claude agents`. Killing its process doesn't stop it, because Claude Code resumes the session straight away.
 - **`/sdlc:cleanup` can't recognize a squash merge,** because the branch's commits never reach main. Remove that worktree yourself. The same goes for an abandoned change.

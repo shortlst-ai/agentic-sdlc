@@ -266,7 +266,7 @@ test('launching doesn\'t wait on a service that outlives the session start', (t)
   assert.ok(Date.now() - started < 4000);
 });
 
-test('launching again refuses a build that\'s running or stuck, and restarts one that stopped', (t) => {
+test('launching again refuses a build that\'s running, and restarts one that\'s blocked or stopped', (t) => {
   const c = repo(t);
   const dir = launched(c);
   const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
@@ -274,15 +274,16 @@ test('launching again refuses a build that\'s running or stuck, and restarts one
   c.sessions([{ ...session, status: 'busy', state: 'working' }]);
   assert.match(c.sdlc(c.root, 'launch', 'csv').stderr, /still running/);
 
+  // Blocked is how a session looks once it has ended its turn with a message, too.
   c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
-  const blocked = c.sdlc(c.root, 'launch', 'csv').stderr;
-  assert.match(blocked, /waiting on you, at a permission prompt or a question: run claude attach sdlc-csv/);
-  assert.doesNotMatch(blocked, /undefined/);
+  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
+  assert.equal(c.calls().match(/stop abc/g).length, 1);
+  assert.equal(c.calls().match(/--bg/g).length, 2);
 
   c.sessions([{ ...session, status: 'idle', state: 'working' }]);
   assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
-  assert.match(c.calls(), /stop abc/);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
+  assert.equal(c.calls().match(/stop abc/g).length, 2);
+  assert.equal(c.calls().match(/--bg/g).length, 3);
 });
 
 test('launching waits for Claude\'s settings to be committed, or the build would start without the plugin', (t) => {
@@ -484,6 +485,18 @@ test('syncing from the main session leaves a running build alone', (t) => {
   assert.equal(fs.existsSync(path.join(dir, 'docs/x.md')), false);
 });
 
+test('syncing from the main session brings in main past a blocked build, then restarts it', (t) => {
+  const c = repo(t);
+  const dir = launched(c);
+  mainMoves(c, 'docs/x.md');
+  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'blocked' }]);
+  const result = c.sdlc(c.root, 'sync', 'csv');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(path.join(dir, 'docs/x.md')), true);
+  assert.match(c.calls(), /stop abc/);
+  assert.equal(c.calls().match(/--bg/g).length, 2);
+});
+
 test('syncing from the main session restarts a build that has work left', (t) => {
   const c = repo(t);
   const dir = finished(c);
@@ -618,7 +631,7 @@ test('a main session hears when a build is stuck or has stopped', async (t) => {
   // The shape `claude agents --json` gives a session at a prompt: no detail on what it's asking.
   c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
   const stuck = (await outcome(watch(c, c.root))).stderr;
-  assert.match(stuck, /0001-csv is waiting on you, at a permission prompt or a question, so run claude attach sdlc-csv/);
+  assert.match(stuck, /0001-csv's build is waiting for a reply\. .*claude attach sdlc-csv.*\/sdlc:launch csv/);
   assert.doesNotMatch(stuck, /undefined/);
 
   c.sessions([]);

@@ -4,7 +4,9 @@ description: Run the next step of the factory for the current work item. Use to 
 
 You are the team lead. You decide nothing about what comes next: `sdlc` does.
 
-Run `sdlc status --json` and act on `next`:
+If the session start context asked for it, run `sdlc setup` first.
+
+Run `sdlc status --json` and act on `next`. If you were given a name, or this conversation is about one item among several, run `sdlc status <name> --json` and pass the name to `sdlc advance` too:
 
 | `next.action` | What to do |
 | --- | --- |
@@ -13,7 +15,8 @@ Run `sdlc status --json` and act on `next`:
 | `produce` | Use the stage's skill, in the table below. If `next.stage` is `verify` but the item is already past it, the code changed after it was tested, so run `sdlc rework --reason "<what changed>"` |
 | `approve` | Stop. Show `next.artifact`, including any concerns it flags, and ask the person to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. If `next.stale` is set, say the file changed after approval. You can't approve anything |
 | `advance` | Run `sdlc advance`, except at `build` as noted below, then run this skill again |
-| `none` | Commit `.sdlc/` and show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
+| `launch` | Stop. Both documents are approved. Tell the person they can type `/sdlc:launch <name of this item>`. Don't advance it: it can't be built on the default branch |
+| `none` | Commit `.sdlc/`, then run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
 
 | Stage | Skill |
 | --- | --- |
@@ -33,7 +36,9 @@ git -C <main checkout> merge --no-ff <item's branch>
 
 Tell them to merge before ending this session and removing the worktree, because removing it deletes the branch and its commits. You don't run the merge: it's theirs, as a pull request's would be.
 
-Commit `.sdlc/` whenever this skill finishes a step, so a resumed session can pick up from Git.
+Commit `.sdlc/` whenever this skill finishes a step, so a resumed session can pick up from Git. On the default branch, don't: a draft stays uncommitted until `/sdlc:launch` moves it.
+
+To bring in changes from the default branch, run `sdlc sync`, and never merge or rebase by hand. It keeps the item's records straight. If it reports conflicts, the item is back at build: resolve them, run the tests, and commit.
 
 You don't need to read the factory's own source. `sdlc --help`, these skills, and what a command prints tell you everything, and reading outside this repo stops the session at a permission prompt.
 

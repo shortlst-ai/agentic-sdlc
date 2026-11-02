@@ -50,6 +50,7 @@ function repo(t, verify) {
   config.tracks.critical.paths = ['src/auth/**'];
   fs.writeFileSync(file, JSON.stringify(config));
   commitAll(dir, 'first');
+  git(dir, 'switch', '-q', '-c', 'work');
   return dir;
 }
 

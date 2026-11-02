@@ -40,7 +40,7 @@ function tempDir(t) {
 
 function factory(t) {
   const dir = tempDir(t);
-  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'init', '-q', '-b', 'work');
   git(dir, 'config', 'user.name', 'Ada');
   git(dir, 'config', 'user.email', 'ada@example.com');
   sdlc(dir, 'init');
@@ -228,9 +228,31 @@ test('corrupt state fails closed in the factory', (t) => {
 test('pre-bash blocks a push from the default branch', (t) => {
   const cwd = factory(t);
   git(cwd, 'commit', '-q', '--allow-empty', '-m', 'first');
+  git(cwd, 'branch', '-M', 'main');
   assert.equal(preBash(cwd, 'git push').status, 2);
   git(cwd, 'switch', '-q', '-c', 'feature');
   assert.equal(preBash(cwd, 'git push').status, 0);
+});
+
+test('pre-bash keeps drafts off the default branch, and nothing else', (t) => {
+  const cwd = factory(t);
+  git(cwd, 'commit', '-q', '--allow-empty', '-m', 'first');
+  git(cwd, 'branch', '-M', 'main');
+  sdlc(cwd, 'new', 'draft');
+  git(cwd, 'add', '.sdlc/work');
+  const refused = preBash(cwd, 'git commit -m draft');
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /drafts stay uncommitted/);
+
+  git(cwd, 'reset', '-q');
+  fs.writeFileSync(path.join(cwd, 'notes.md'), 'unrelated');
+  git(cwd, 'add', 'notes.md');
+  assert.equal(preBash(cwd, 'git commit -m notes').status, 0);
+
+  git(cwd, 'reset', '-q');
+  git(cwd, 'switch', '-q', '-c', 'feature');
+  git(cwd, 'add', '.sdlc/work');
+  assert.equal(preBash(cwd, 'git commit -m item').status, 0);
 });
 
 test('pre-bash sees a real staged secret and a real changed one', (t) => {
@@ -387,6 +409,8 @@ describe('a session that stops with work left', () => {
     const cwd = factory(t);
     sdlc(cwd, 'new', 'feature');
     assert.equal(stopped(cwd, {}, { CLAUDE_CODE_SESSION_ATTENDED: '0' }).stdout, '');
+    const build = { CLAUDE_CODE_SESSION_ATTENDED: '0', CLAUDE_JOB_DIR: '/jobs/abc' };
+    assert.equal(JSON.parse(stopped(cwd, {}, build).stdout).decision, 'block');
   });
 
   test('nothing open means nothing to say', (t) => {

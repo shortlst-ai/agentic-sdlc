@@ -6,4 +6,4 @@ At the `intent` stage, spawn a `sdlc:spec-writer`, giving it the work item folde
 
 At the `spec` stage, spawn a `sdlc:researcher` to map the code the change touches. Then spawn a `sdlc:spec-writer`, giving it the work item folder, the approved `intent.md`, and the findings.
 
-Use `/sdlc:team` for how to spawn them. Check the file exists, commit it, and show the person any concerns it flags. Then use `/sdlc:next`.
+Use `/sdlc:team` for how to spawn them. Check the file exists, commit it unless this is the default branch, and show the person any concerns it flags. Then use `/sdlc:next`. With several drafts open, pass the name of this one.

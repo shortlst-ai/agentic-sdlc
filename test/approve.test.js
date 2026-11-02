@@ -310,6 +310,9 @@ test('a number shared by two worktrees is refused rather than guessed', (t) => {
   const second = path.join(root, '.claude', 'worktrees', 'other');
   git(root, 'worktree', 'add', '-q', '-b', 'worktree-other', second);
   assert.equal(sdlc(['new', 'other'], second).status, 0);
+  // Numbers are unique now, but items from before that can still share one.
+  const work = path.join(second, '.sdlc', 'work');
+  fs.renameSync(path.join(work, '0003-other'), path.join(work, '0002-other'));
 
   const result = hook(root, { args: '2' });
   assert.equal(result.decision, 'block');
@@ -412,11 +415,11 @@ test('approve all records everything waiting and lists it', (t) => {
   const second = path.join(root, '.claude', 'worktrees', 'other');
   git(root, 'worktree', 'add', '-q', '-b', 'worktree-other', second);
   assert.equal(sdlc(['new', 'other'], second).status, 0);
-  fs.writeFileSync(path.join(second, '.sdlc', 'work', '0002-other', 'intent.md'), 'the intent');
+  fs.writeFileSync(path.join(second, '.sdlc', 'work', '0003-other', 'intent.md'), 'the intent');
 
   const context = hook(root, { args: 'all' }).hookSpecificOutput.additionalContext;
-  assert.deepEqual(context.split('\n').map((line) => line.split(' ')[2]), ['0002-labels', '0002-other']);
-  for (const [dir, id] of [[first, '0002-labels'], [second, '0002-other']]) {
+  assert.deepEqual(context.split('\n').map((line) => line.split(' ')[2]), ['0002-labels', '0003-other']);
+  for (const [dir, id] of [[first, '0002-labels'], [second, '0003-other']]) {
     assert.ok(fs.existsSync(path.join(dir, '.sdlc', 'work', id, 'approvals', 'intent.json')));
   }
 });
@@ -431,7 +434,7 @@ test('approve all leaves items that aren\'t at a gate alone', (t) => {
 
   const context = hook(root, { args: 'all' }).hookSpecificOutput.additionalContext;
   assert.equal(context.split('\n').length, 1);
-  assert.equal(fs.existsSync(path.join(second, '.sdlc', 'work', '0002-other', 'approvals')), false);
+  assert.equal(fs.existsSync(path.join(second, '.sdlc', 'work', '0003-other', 'approvals')), false);
   assert.ok(fs.existsSync(path.join(first, '.sdlc', 'work', '0002-labels', 'approvals', 'intent.json')));
 });
 

@@ -2,7 +2,9 @@
 description: Build the current work item, one slice at a time. Use at the build stage.
 ---
 
-Work through the slices in `spec.md` in order. A spec with no slice headings is one slice, `S1`. For each slice:
+If `git status` shows an unfinished merge, `sdlc sync` left conflicts. Resolve them first, keeping what both sides meant, run the tests, and commit.
+
+Work through the slices in `spec.md` in order, skipping any that already passed in `evidence/reviews/`. A spec with no slice headings is one slice, `S1`. For each slice:
 
 1. Spawn one `sdlc:builder`, telling it the slice and the work item folder. Use `/sdlc:team` for how.
 2. When it stops, a hook has already checked its diff and run the tests, and sends it back if they fail. If it gave up, tell the person.

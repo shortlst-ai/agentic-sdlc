@@ -1,12 +1,18 @@
 {
   "name": "sdlc",
-  "version": "0.1.0",
+  "displayName": "Agentic SDLC",
+  "version": "0.2.0",
   "description": "Moves each change through committed artifacts and gates, from intent to a merged pull request",
   "author": {
     "name": "Xinming An",
     "url": "https://github.com/shortlst-ai"
   },
+  "homepage": "https://github.com/shortlst-ai/agentic-sdlc",
   "repository": "https://github.com/shortlst-ai/agentic-sdlc",
   "license": "MIT",
-  "keywords": ["sdlc", "workflow", "governance"]
+  "keywords": [
+    "sdlc",
+    "workflow",
+    "governance"
+  ]
 }

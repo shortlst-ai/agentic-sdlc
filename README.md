@@ -169,6 +169,10 @@ The model can't run `approve` or `abandon`. They work only when a person types t
 
 The full list is in [what's proven](docs/whats-proven.md).
 
+## What it runs and changes
+
+The plugin sends nothing anywhere itself. It edits `.claude/settings.json` to allow its own `sdlc` command and turn on agent teams, commits each change's records to that change's branch, and creates worktrees under `.claude/worktrees/`. It runs your project's setup and test commands, `git`, background `claude` sessions, and, with a GitHub remote, `gh` to open pull requests and issues. The [plugin's README](plugins/sdlc/README.md#what-it-runs-and-changes) lists everything.
+
 ## Learn more
 
 - [Tutorial: your first change](docs/tutorial.md)

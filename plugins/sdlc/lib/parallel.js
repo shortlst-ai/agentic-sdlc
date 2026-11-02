@@ -22,6 +22,7 @@ const START_PROMPT = '/sdlc:next';
 // the same work and leave nothing behind.
 const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0' } });
 const CLAUDE_TIMEOUT_MS = 60000;
+const SETTINGS = path.join('.claude', 'settings.json');
 
 // `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
 const BLOCKED = 'waiting on you, at a permission prompt or a question';
@@ -146,6 +147,11 @@ function promote(root, { item }) {
   if (next.action !== 'launch') throw new SdlcError(`can't launch ${item.id}: ${machine.describeNext(next)}`);
   if (git(root, ['ls-files', '--', path.join('.sdlc', 'work', item.id)])) {
     throw new SdlcError(`${item.id} is committed on ${item.branch}, so it can't be moved to a worktree`);
+  }
+  // The worktree starts from the last commit. Without the plugin enabled there, its
+  // session can't even run the start prompt, and builds with no hooks.
+  if (git(root, ['status', '--porcelain', '--', SETTINGS])) {
+    throw new SdlcError(`commit ${SETTINGS} first: ${item.id}'s worktree starts from the last commit, so its build wouldn't get your changes`);
   }
   const branch = `worktree-${slugOf(item)}`;
   const dir = path.join(root, '.claude', 'worktrees', slugOf(item));

@@ -285,6 +285,21 @@ test('launching again refuses a build that\'s running or stuck, and restarts one
   assert.equal(c.calls().match(/--bg/g).length, 2);
 });
 
+test('launching waits for Claude\'s settings to be committed, or the build would start without the plugin', (t) => {
+  const c = repo(t);
+  approvedDraft(c);
+  const settings = path.join(c.root, '.claude', 'settings.json');
+  fs.writeFileSync(settings, fs.readFileSync(settings, 'utf8').replace('}', ', "enabledPlugins": {}\n}'));
+  const refused = c.sdlc(c.root, 'launch', 'csv');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /commit \.claude\/settings\.json first/);
+  assert.ok(fs.existsSync(itemFile(c.root, 'spec.md')), 'the draft stays here');
+  assert.doesNotMatch(c.calls(), /--bg/);
+
+  c.git(c.root, 'commit', '-q', '-m', 'settings', '--', '.claude/settings.json');
+  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
+});
+
 test('launching can\'t get past a gate that reopened', (t) => {
   const c = repo(t);
   const dir = launched(c);

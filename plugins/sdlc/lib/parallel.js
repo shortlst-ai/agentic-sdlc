@@ -275,8 +275,11 @@ function sync(root, query) {
   if (outside) refuseIfRunning(found);
   const result = update(found);
   const after = workspace.loadItem(found.root, found.item.id);
-  if (outside && result.outcome !== 'current' && isOpen(after)) restart(found.root, after);
-  return { ...result, message: reportSync(after, result) };
+  const restarted = outside && result.outcome !== 'current' && isOpen(after);
+  if (restarted) restart(found.root, after);
+  // Said outright, or the main session assumes the old build is still going and relaunches it.
+  const started = restarted ? ' Its build has started again on the new code, so it needs no launch.' : '';
+  return { ...result, message: `${reportSync(after, result)}${started}` };
 }
 
 function isMerged({ root: dir, item }) {

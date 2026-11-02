@@ -368,6 +368,7 @@ test('a finished change with no overlap stays finished, once the tests pass on t
   const result = c.sdlc(dir, 'sync');
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /now includes main/);
+  assert.doesNotMatch(result.stdout, /started again/, 'the session asking is the build');
   assert.equal(state(dir).stage, 'done');
   assert.notEqual(fs.readFileSync(itemFile(dir, 'evidence/verify.md'), 'utf8'), before);
   assert.equal(c.gitOut(dir, 'status', '--porcelain'), '');
@@ -492,6 +493,7 @@ test('syncing from the main session brings in main past a blocked build, then re
   c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'blocked' }]);
   const result = c.sdlc(c.root, 'sync', 'csv');
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /now includes main\. Its build has started again/);
   assert.equal(fs.existsSync(path.join(dir, 'docs/x.md')), true);
   assert.match(c.calls(), /stop abc/);
   assert.equal(c.calls().match(/--bg/g).length, 2);

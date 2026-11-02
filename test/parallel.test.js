@@ -21,6 +21,7 @@ const FAKE_CLAUDE = `#!/bin/sh
 case "$1" in
   agents) cat "$FAKE_DIR/sessions" 2>/dev/null || echo '[]' ;;
   --bg) [ -f "$FAKE_DIR/refuse" ] && { echo 'Workspace not trusted' >&2; exit 1; }
+        [ -f "$FAKE_DIR/service" ] && sleep 5 &
         echo 'backgrounded · abc12345 · name' ;;
 esac
 exit 0
@@ -205,7 +206,7 @@ test('launching moves the draft to a committed worktree and starts a session the
 
   const call = c.calls().split('\n').find((line) => line.includes('--bg'));
   assert.equal(call.split('|')[0], dir);
-  assert.match(call, /--bg -n sdlc-csv \/sdlc:next/);
+  assert.match(call, /--bg --settings .*AGENT_TEAMS.* -n sdlc-csv \/sdlc:next/);
   assert.match(call, /\s0$/, 'the session must not look like a child of this one');
 });
 
@@ -245,6 +246,15 @@ test('a session that won\'t start says why, and launching again carries on', (t)
   assert.equal(c.calls().match(/--bg/g).length, 2);
 });
 
+test('launching doesn\'t wait on a service that outlives the session start', (t) => {
+  const c = repo(t);
+  approvedDraft(c);
+  touch(c.fake, 'service');
+  const started = Date.now();
+  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
+  assert.ok(Date.now() - started < 4000);
+});
+
 test('launching again refuses a build that\'s running or stuck, and restarts one that stopped', (t) => {
   const c = repo(t);
   const dir = launched(c);
@@ -256,7 +266,7 @@ test('launching again refuses a build that\'s running or stuck, and restarts one
   c.sessions([{ ...session, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' }]);
   assert.match(c.sdlc(c.root, 'launch', 'csv').stderr, /claude attach sdlc-csv/);
 
-  c.sessions([{ ...session, status: 'idle', state: 'done' }]);
+  c.sessions([{ ...session, status: 'idle', state: 'working' }]);
   assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
   assert.match(c.calls(), /stop abc/);
   assert.equal(c.calls().match(/--bg/g).length, 2);

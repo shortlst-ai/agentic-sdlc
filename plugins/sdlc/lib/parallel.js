@@ -6,6 +6,7 @@
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const machine = require('./machine');
@@ -15,6 +16,11 @@ const { ARTIFACTS, isOpen } = machine;
 const { SdlcError, git } = workspace;
 
 const START_PROMPT = '/sdlc:next';
+
+// A finished teammate stays listed as running, which keeps the stop hook from
+// sending a stalled lead back. Nobody is watching a build, so plain subagents do
+// the same work and leave nothing behind.
+const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0' } });
 const CLAUDE_TIMEOUT_MS = 60000;
 
 function slugOf(item) {
@@ -65,6 +71,7 @@ function sessionsAt(sessions, dir) {
 function sessionState(session) {
   if (!session) return 'stopped';
   if (session.state === 'blocked') return 'blocked';
+  // `state` is how the last turn ended, and can stay at `working` on an idle session.
   return session.status === 'idle' ? 'idle' : 'running';
 }
 
@@ -81,11 +88,19 @@ function stopSessions(dir) {
 
 // The state is all in Git, so a fresh session picks up where the last one stopped.
 // Resuming a session that's idle would only start a copy of it.
+//
+// Its output goes to a file because the first `--bg` also starts Claude Code's
+// background service, which would hold a pipe open and hang this until it timed out.
 function startSession(dir, item) {
-  const result = claude(dir, ['--bg', '-n', sessionName(item), START_PROMPT]);
-  if (result.status === 0) return;
-  const detail = (result.error?.message ?? `${result.stderr ?? ''}${result.stdout ?? ''}`).trim();
-  throw new SdlcError(`${item.id} is ready in ${dir}, but its session didn't start: ${detail}`);
+  const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-launch-')), 'output');
+  const output = fs.openSync(log, 'w');
+  const args = ['--bg', '--settings', BUILD_SETTINGS, '-n', sessionName(item), START_PROMPT];
+  const options = { cwd: dir, env: claudeEnv(), stdio: ['ignore', output, output], timeout: CLAUDE_TIMEOUT_MS };
+  const result = spawnSync('claude', args, options);
+  fs.closeSync(output);
+  const detail = result.error?.message ?? fs.readFileSync(log, 'utf8').trim();
+  fs.rmSync(path.dirname(log), { recursive: true });
+  if (result.status !== 0) throw new SdlcError(`${item.id} is ready in ${dir}, but its session didn't start: ${detail}`);
 }
 
 function restart(dir, item) {

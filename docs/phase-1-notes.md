@@ -58,3 +58,23 @@ About 43 minutes in all, against about 18 for the curate fix on the old `quick` 
 - **The firmer wording is unproven.** The old wording also passes the eval on a typo, and the long spec came from a real small fix, which an eval can't cheaply test. Watch the next real change.
 - **The spec was worth reading.** It found two more places a signed URL could reach the terminal. Reading it also caught a slice that would have failed the scope check.
 - **The permission prompt came back,** on a session double-checking a claim by reading the factory's source. Sessions are now told not to, which is an instruction, not a fix.
+
+## First parallel run
+
+A throwaway Python repo, 2026-11-01, with real background sessions on Sonnet. Approvals were recorded through the hook script as fixtures, and the main session's commands were run as scripts rather than typed.
+
+| Step | Result |
+| --- | --- |
+| Two builds side by side, launch to done | About 143 seconds, both clean |
+| `sync` from main, after the first merged | Real conflicts in two files. A `done` item reopened, and its session restarted itself |
+| Resolve, verify, and review again | 133 seconds, 11 tests passing, rework count unchanged |
+| The watcher | Reported the amended spec. Approving restarted the build |
+
+The run found four things unit tests couldn't:
+
+- **`state` can't be trusted for liveness.** It's how the last turn ended, and can stay `working` on an idle session. `status` is the truth, and `state` only adds `blocked`.
+- **A finished teammate stays listed as running.** That turned the stop nudge off, and a build sat at verify with nothing wrong. Builds now run with teams off, and roles run as subagents. A session told to say hi and stop was then sent back, and carried on through to done.
+- **Background sessions need trust from their own repo, not a parent folder.** `/sdlc:launch` reports this, keeps the work, and can be run again.
+- **Approving an edited spec needs a person each time.** The build rightly amended its spec a second time rather than edit outside its scope, which cost a second approval. That's the design, but on a tight spec it will happen.
+
+One false alarm is worth keeping. A launch timed out at 60 seconds, and the background service got the blame for holding the output pipe. A bare `claude --bg` then took a second. The real cause was the test wrapper calling itself. Output still goes to a file, because a test shows a pipe would hang if a child kept it open, but nobody has shown the real service doing that.

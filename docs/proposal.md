@@ -185,6 +185,21 @@ Mid-build findings have a route. New work becomes an issue, so the change stays 
 
 Two costs were accepted. Small changes take more steps than `quick` did, and the failing-test rule moved from a lock enforced by code to an instruction in the skills.
 
+### One main session, with builds in the background
+
+Switching between a session per change was the friction people felt most, so the person stays in one session on the default branch. The approach rests on `claude --bg`, which runs a full session with plugins and hooks.
+
+| Step | Where | Notes |
+| --- | --- | --- |
+| Intent and spec | Main session | A draft, uncommitted, so a dropped idea costs no worktree and the default branch doesn't move |
+| `/sdlc:launch` | Main session | Moves the draft to a new worktree and branch, commits it, and starts a background session |
+| Build to pull request | Background session | Unattended, so it can't record an approval |
+| Gates, stalls, and finished builds | Main session | Its `Stop` hook watches the builds and wakes it, and an approval restarts the build that was waiting |
+
+A build that stops is restarted fresh rather than resumed, because `--resume` on an idle session only starts a copy, and the state is in Git anyway. This costs the lead its conversation, which holds little that the work item doesn't.
+
+Parallel work makes the default branch move under a change, so a change has to be able to catch up. `sdlc sync` merges rather than rebases, so commits keep their hashes and an open pull request stays valid. It compares the change's own files before and after. If they came out the same, its reviews stand and only the tests run again, on the combined code, because `sdlc gates` doesn't run tests. If they differ, it goes back through build, verify, and final review. This isn't counted as rework, because the change did nothing wrong, and slice reviews stay, because each slice is as it was.
+
 ---
 
 ## 6. What gets built
@@ -371,6 +386,7 @@ Settled on 2026-10-30:
 7. **Execution model:** Claude Code's native worktrees, not hand-managed `git worktree`, with one session and agent team per work item.
 8. **Worktree environments:** each worktree builds its own through `commands.setup`, because a shared `.venv` tests the wrong code.
 9. **One path (2026-11-01):** every change goes from intent to spec to slices, with separate approvals for intent and spec. Tracks were dropped after real use. Section 5 has the reasons.
+10. **One main session (2026-11-01):** a person stays in one session on the default branch, and each build runs in a background session in its own worktree. This replaces decision 7's one session per work item for the person, though each build still has its own. Section 5 has the details.
 
 ### What a local dogfood repo changes
 

@@ -14,6 +14,6 @@ Set up the factory in this repo.
    ```
 
 4. Tell the person to review and commit `.sdlc/`, `.claude/settings.json`, and `.gitignore` to the base branch. Worktrees can't see the factory until that's done.
-5. Tell them to start each change with `claude --worktree <slug>` from a terminal. That only works in a folder Claude has already trusted, so run plain `claude` here once if it hasn't been.
+5. Tell them this session, on the default branch, is where they start and approve changes, beginning with `/sdlc:new <name>`. Each build then runs in the background in its own worktree after `/sdlc:launch`.
 
 Don't edit `.sdlc/config.json` yourself. After init, only people change it.

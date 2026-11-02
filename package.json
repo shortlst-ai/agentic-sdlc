@@ -1,5 +1,5 @@
 {
-  "name": "ai-sdlc",
+  "name": "agentic-sdlc",
   "private": true,
   "license": "MIT",
   "engines": { "node": ">=20" },

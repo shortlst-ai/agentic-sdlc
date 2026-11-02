@@ -24,5 +24,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: git clone --depth 1 https://github.com/shortlst-ai/ai-sdlc "$RUNNER_TEMP/sdlc"
+      - run: git clone --depth 1 https://github.com/shortlst-ai/agentic-sdlc "$RUNNER_TEMP/sdlc"
       - run: node "$RUNNER_TEMP/sdlc/plugins/sdlc/bin/sdlc" gates --base "origin/$GITHUB_BASE_REF"

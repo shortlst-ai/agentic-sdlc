@@ -221,7 +221,7 @@ Length is a warning, not a refusal, because some changes really are larger. Diag
 ### Plugin layout
 
 ```text
-ai-sdlc/                         this repo: a marketplace holding the plugin
+agentic-sdlc/                    this repo: a marketplace holding the plugin
 ├── .claude-plugin/marketplace.json
 ├── docs/proposal.md
 └── plugins/sdlc/

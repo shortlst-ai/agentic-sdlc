@@ -10,6 +10,7 @@ const { runGates } = require('./gates');
 const machine = require('./machine');
 const { coverage, detect, intentFor, slugFor } = require('./detect');
 const { collect } = require('./metrics');
+const parallel = require('./parallel');
 const workspace = require('./workspace');
 
 const { TRACKS, isOpen } = machine;
@@ -32,6 +33,10 @@ Commands:
   verify [<id>]                      Run the verify command and record evidence
   advance [<id>]                     Move to the next stage if its gate passes
   rework [<id>] --reason <text>      Send verify or review back to build
+  launch <id>                        Move an approved draft to a worktree and build
+                                     it in a background session, or restart a build
+  sync [<id>]                        Bring the default branch into a change
+  cleanup [<id>]                     Remove the worktrees of merged changes
   track [<id>] [<track>] [--files a,b]
                                      Raise a track, or add files to the item.
                                      Tracks can never be lowered
@@ -118,7 +123,8 @@ function status(positionals, values) {
     return 0;
   }
   console.log(`Factory root: ${root}`);
-  const elsewhere = positionals[0] ? [] : workspace.openElsewhere(root);
+  const elsewhere = positionals[0] ? [] : workspace.elsewhere(root);
+  const sessions = elsewhere.length > 0 ? parallel.backgroundSessions() : null;
   if (items.length === 0 && elsewhere.length === 0) {
     console.log(workspace.listIds(root).length === 0 ? 'No work items yet.' : 'No open work items.');
   }
@@ -127,8 +133,9 @@ function status(positionals, values) {
   }
   for (const { root: dir, item } of elsewhere) {
     const next = machine.nextAction(item, workspace.readFacts(dir, item));
-    const where = path.relative(root, dir);
-    console.log(`${item.id}  ${item.track}  ${item.stage}  next: ${machine.describeNext(next)}  (in ${where})`);
+    const session = parallel.describeSession(sessions, dir);
+    const where = [`in ${path.relative(root, dir)}`, ...(session ? [`session ${session}`] : [])].join(', ');
+    console.log(`${item.id}  ${item.track}  ${item.stage}  next: ${machine.describeNext(next)}  (${where})`);
   }
   return 0;
 }
@@ -172,25 +179,13 @@ function tail(text, lines) {
   return text.trimEnd().split('\n').slice(-lines).join('\n');
 }
 
-// The tool writes the evidence, not an agent, so it's the test output itself. A
-// failing run removes any earlier pass, so an old result can't stand in for it.
+// The tool writes the evidence, not an agent, so it's the test output itself.
 function verify(positionals) {
   const root = requireRoot();
   const item = workspace.activeItem(root, positionals[0]);
   if (item.stage !== 'verify') throw new SdlcError(`${item.id} is at ${item.stage}, not verify`);
-  const command = workspace.loadConfig(root).commands?.verify;
-  if (!command) throw new SdlcError('set commands.verify in .sdlc/config.json');
-  const result = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
-  const output = tail(`${result.stdout ?? ''}${result.stderr ?? ''}`, 200);
-  const code = workspace.codeFingerprint(root, item.base);
-  const body = `command: ${command}\ncommit: ${workspace.headCommit(root)}\ncode: ${code}\n\n${output}\n`;
-  if (result.status !== 0) {
-    workspace.removeEvidence(root, item, 'verify.md');
-    workspace.writeEvidence(root, item, 'verify-failed.md', body);
-    throw new SdlcError(`verify failed: ${command}\n${tail(output, 20)}`);
-  }
-  workspace.removeEvidence(root, item, 'verify-failed.md');
-  workspace.writeEvidence(root, item, 'verify.md', body);
+  const { passed, command, output } = parallel.runVerify(root, item);
+  if (!passed) throw new SdlcError(`verify failed: ${command}\n${tail(output, 20)}`);
   console.log(`${item.id}: verify passed.`);
   return 0;
 }
@@ -232,6 +227,25 @@ function rework(positionals, values) {
   const event ={ from: item.stage, to: result.item.stage, reason: values.reason };
   workspace.saveItem(root, record(result.item, event));
   console.log(`${item.id}  ${item.stage} -> ${result.item.stage}  (rework ${result.item.rework})`);
+  return 0;
+}
+
+function launch(positionals) {
+  if (!positionals[0]) throw new SdlcError('sdlc launch needs the name of a change', 2);
+  const dir = parallel.launch(requireRoot(), positionals[0]);
+  console.log(`${positionals[0]} is building in ${dir}.`);
+  return 0;
+}
+
+function sync(positionals) {
+  const { outcome, message } = parallel.sync(requireRoot(), positionals[0]);
+  console.log(message);
+  return outcome === 'conflict' ? 1 : 0;
+}
+
+function cleanup(positionals) {
+  const removed = parallel.cleanup(requireRoot(), positionals[0]);
+  console.log(removed.length === 0 ? 'No merged changes to clean up.' : `Removed ${removed.join(', ')}.`);
   return 0;
 }
 
@@ -390,6 +404,9 @@ function dispatch(argv) {
     verify,
     advance,
     rework,
+    launch,
+    sync,
+    cleanup,
     track,
     gates,
     metrics,

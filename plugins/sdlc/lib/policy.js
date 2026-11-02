@@ -240,6 +240,10 @@ function checkGit(tokens, facts) {
   if (subcommand === 'commit') {
     const secrets = secretsIn(facts.stagedFiles());
     if (secrets.length > 0) return deny(`this would commit secrets: ${secrets.join(', ')}`);
+    const staged = facts.stagedFiles().some((file) => file.startsWith('.sdlc/work/'));
+    if (staged && facts.currentBranch() === facts.defaultBranch()) {
+      return deny('drafts stay uncommitted on the default branch, until /sdlc:launch moves them to a worktree');
+    }
   }
   return ALLOW;
 }

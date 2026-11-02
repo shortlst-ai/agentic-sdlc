@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { ARTIFACTS, FLOWS, isOpen, isValidItem, matchesAny, reviewVerdict } = require('./machine');
+const { ABANDONED, ARTIFACTS, FLOWS, isOpen, isValidItem, matchesAny, reviewVerdict } = require('./machine');
 
 const SDLC_DIR = '.sdlc';
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -151,6 +151,13 @@ function currentBranch(root) {
   return git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
 }
 
+// Null when neither the remote nor the usual names give an answer.
+function defaultBranch(root) {
+  const remote = git(root, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  if (remote) return remote.replace(/^origin\//, '');
+  return ['main', 'master'].find((name) => git(root, ['rev-parse', '--verify', '-q', `refs/heads/${name}`]) !== null) ?? null;
+}
+
 function ignoreWorktrees(root) {
   const file = path.join(root, '.gitignore');
   const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
@@ -253,12 +260,16 @@ function listIds(root) {
     .sort();
 }
 
+function matchesQuery(id, query) {
+  const [number, ...slug] = id.split('-');
+  if (/^\d+$/.test(query)) return Number(number) === Number(query);
+  return id === query || slug.join('-') === query;
+}
+
 function resolveId(root, query) {
   const ids = listIds(root);
   if (ids.includes(query)) return query;
-  const matches = /^\d+$/.test(query)
-    ? ids.filter((id) => Number(id.split('-')[0]) === Number(query))
-    : [];
+  const matches = ids.filter((id) => matchesQuery(id, query));
   if (matches.length === 1) return matches[0];
   if (matches.length > 1) {
     throw new SdlcError(`'${query}' is ambiguous: ${matches.join(', ')}`);
@@ -275,30 +286,44 @@ function ownItems(root) {
     .filter((item) => !item.branch || item.branch === branch);
 }
 
-// Open items in every checkout of this repo, so a person can act on any of them
-// from one place. A worktree with no factory, or one that's gone, has none.
-function openEverywhere(root) {
+function checkouts(root) {
   const listing = git(root, ['worktree', 'list', '--porcelain']) ?? '';
-  const checkouts = listing
+  return listing
     .split('\n')
     .filter((line) => line.startsWith('worktree '))
     .map((line) => line.slice('worktree '.length));
-  return checkouts.flatMap((dir) =>
+}
+
+// Every item in every checkout of this repo, finished or not, so a person can act
+// on any of them from one place. A worktree with no factory, or one that's gone,
+// has none.
+function itemsEverywhere(root) {
+  return checkouts(root).flatMap((dir) =>
     ownItems(dir)
-      .filter(isOpen)
+      .filter((item) => item.stage !== ABANDONED)
       .map((item) => ({ root: dir, item })),
   );
 }
 
-function openElsewhere(root) {
-  const here = fs.realpathSync(root);
-  return openEverywhere(root).filter((found) => fs.realpathSync(found.root) !== here);
+function openEverywhere(root) {
+  return itemsEverywhere(root).filter(({ item }) => isOpen(item));
 }
 
-function matchesQuery(id, query) {
-  const [number, ...slug] = id.split('-');
-  if (/^\d+$/.test(query)) return Number(number) === Number(query);
-  return id === query || slug.join('-') === query;
+// What's running in worktrees, which is all a main session has to look after.
+function launchedItems(root) {
+  return itemsEverywhere(root).filter(({ root: dir }) => isLinkedWorktree(dir));
+}
+
+function elsewhere(root) {
+  const here = fs.realpathSync(root);
+  return itemsEverywhere(root).filter((found) => fs.realpathSync(found.root) !== here);
+}
+
+function findItem(root, query) {
+  const matches = itemsEverywhere(root).filter(({ item }) => matchesQuery(item.id, query));
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) throw new SdlcError(`no work item '${query}'`);
+  throw new SdlcError(`'${query}' is ambiguous: ${matches.map(({ item }) => item.id).join(', ')}`);
 }
 
 // Finds an item by id, slug, or number, in whichever checkout holds it. Closed
@@ -326,7 +351,9 @@ function createItem(root, slug, track, stage, files = []) {
   if (!SLUG.test(slug)) {
     throw new SdlcError(`invalid slug '${slug}': use lowercase letters, digits, and hyphens`, 2);
   }
-  const highest = Math.max(0, ...listIds(root).map((id) => Number(id.split('-')[0]) || 0));
+  // Counts every checkout, so two changes in flight don't share a number.
+  const ids = [root, ...checkouts(root)].flatMap(listIds);
+  const highest = Math.max(0, ...ids.map((id) => Number(id.split('-')[0]) || 0));
   const id = `${String(highest + 1).padStart(4, '0')}-${slug}`;
   fs.mkdirSync(workDir(root), { recursive: true });
   try {
@@ -341,12 +368,16 @@ function createItem(root, slug, track, stage, files = []) {
   return item;
 }
 
+// What a sync sets aside. Slice reviews stay, because each slice is as it was, and
+// the final review looks again at how everything fits.
+const SYNC_EVIDENCE = [ARTIFACTS.verify, ARTIFACTS.review, 'approvals/merge.json'];
+
 // Evidence describes code that's about to change, so a rework cycle can't reuse
 // it. Moving it rather than deleting it keeps the failed round in the audit trail.
-function archiveEvidence(root, id, cycle) {
+function archiveEvidence(root, id, cycle, files = [...SYNC_EVIDENCE, 'evidence/reviews']) {
   const dir = path.join(workDir(root), id);
   const archive = path.join(dir, 'evidence', `rework-${cycle}`);
-  for (const file of [ARTIFACTS.verify, ARTIFACTS.review, 'evidence/reviews', 'approvals/merge.json']) {
+  for (const file of files) {
     const source = path.join(dir, file);
     if (!fs.existsSync(source)) continue;
     fs.mkdirSync(archive, { recursive: true });
@@ -460,7 +491,8 @@ function readFacts(root, item) {
   }
   const review = path.join(dir, ARTIFACTS.review);
   const verdict = fs.existsSync(review) ? reviewVerdict(fs.readFileSync(review, 'utf8')) : null;
-  return { artifacts, approvals, verdict };
+  const draft = Boolean(item.branch) && item.branch === defaultBranch(root);
+  return { artifacts, approvals, verdict, draft };
 }
 
 // An unreadable approval counts as no approval, so the gate stays shut.
@@ -473,6 +505,7 @@ function readApproval(file) {
 }
 
 module.exports = {
+  SYNC_EVIDENCE,
   SdlcError,
   UNREACHABLE_WARNING,
   activeItem,
@@ -483,19 +516,25 @@ module.exports = {
   codeFingerprint,
   countStopBlock,
   createItem,
+  defaultBranch,
+  elsewhere,
+  findItem,
   findRoot,
+  git,
   headCommit,
   init,
+  isLinkedWorktree,
+  launchedItems,
   listIds,
   removeEvidence,
   writeEvidence,
   markSetupDone,
+  matchesQuery,
   parseConfig,
   ownItems,
   loadConfig,
   loadItem,
   locateItem,
-  openElsewhere,
   openEverywhere,
   readArtifact,
   readFacts,

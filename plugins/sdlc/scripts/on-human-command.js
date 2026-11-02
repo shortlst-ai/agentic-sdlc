@@ -6,7 +6,8 @@
 
 const fs = require('node:fs');
 
-const { abandon, approve, approveAll } = require('../lib/approve');
+const { abandon, approve, approveAll, namesItem } = require('../lib/approve');
+const { continueAfterApproval, stopSessions } = require('../lib/parallel');
 const { SdlcError } = require('../lib/workspace');
 
 function block(reason) {
@@ -33,12 +34,15 @@ function recorded(record) {
 function runApprove(input, args) {
   const records =
     args[0] === 'all' ? approveAll({ cwd: input.cwd }) : [approve({ cwd: input.cwd, query: args[0] })];
-  allow(records.map(recorded).join('\n'));
+  const restarted = records.map(({ root, item }) => continueAfterApproval(root, item)).filter(Boolean);
+  allow([...records.map(recorded), ...restarted].join('\n'));
 }
 
 function runAbandon(input, args) {
-  const query = ITEM_ID.test(args[0] ?? '') ? args.shift() : undefined;
+  const named = ITEM_ID.test(args[0] ?? '') || namesItem(input.cwd, args[0]);
+  const query = named ? args.shift() : undefined;
   const record = abandon({ cwd: input.cwd, query, reason: args.join(' ') });
+  stopSessions(record.root);
   allow(`Abandon recorded: ${record.id}, because ${record.reason}.`);
 }
 

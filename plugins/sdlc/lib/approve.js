@@ -75,7 +75,7 @@ function approve({ cwd, query }) {
     at: new Date().toISOString(),
   };
   workspace.saveApproval(root, item, record);
-  return { id: item.id, ...record };
+  return { id: item.id, root, item, ...record };
 }
 
 // Everything waiting across the repo, for a person who has seen the list.
@@ -86,6 +86,12 @@ function approveAll({ cwd }) {
   return waiting.map(({ root: dir, item }) => approve({ cwd: dir, query: item.id }));
 }
 
+// Whether a word starts with a change's name, rather than the reason for dropping it.
+function namesItem(cwd, word) {
+  if (!word) return false;
+  return workspace.openEverywhere(factoryRoot(cwd)).some(({ item }) => workspace.matchesQuery(item.id, word));
+}
+
 // The item stays on disk with its reason, so abandoning leaves an audit trail.
 function abandon({ cwd, query, reason }) {
   if (!reason) throw new SdlcError('give a reason: /sdlc:abandon [id] <reason>');
@@ -94,7 +100,7 @@ function abandon({ cwd, query, reason }) {
   if (!result.ok) throw new SdlcError(result.reason);
   const event = { at: new Date().toISOString(), abandoned_from: item.stage, reason, by: approver(root) };
   workspace.saveItem(root, { ...result.item, history: [...item.history, event] });
-  return { id: item.id, reason };
+  return { id: item.id, root, reason };
 }
 
-module.exports = { abandon, approve, approveAll };
+module.exports = { abandon, approve, approveAll, namesItem };

@@ -135,6 +135,9 @@ function nextAction(item, facts) {
     }
   }
 
+  // A draft on the default branch has nowhere to build, so a worktree comes first.
+  if (facts.draft && item.stage === 'spec') return { action: 'launch', to: 'build' };
+
   const following = flow[current + 1];
   return { action: 'advance', to: following ? following.stage : DONE };
 }
@@ -149,6 +152,8 @@ function describeNext(next) {
         : `a person must type /sdlc:approve for ${next.stage}`;
     case 'advance':
       return `advance to ${next.to}`;
+    case 'launch':
+      return 'a person can type /sdlc:launch to build it in its own worktree';
     default:
       return 'nothing, this item is done';
   }
@@ -168,6 +173,14 @@ function rework(item, limit) {
     return { ok: false, reason: `rework limit of ${limit} reached, so this needs a person to decide` };
   }
   return { ok: true, item: { ...item, stage: 'build', rework: item.rework + 1 } };
+}
+
+// Other work reached this change's code, so what was tested and reviewed no longer
+// stands. It isn't the change's fault, so it doesn't count against the rework limit.
+function reopen(item) {
+  const build = stageIndex(item.track, 'build');
+  const past = !isOpen(item) || stageIndex(item.track, item.stage) > build;
+  return past ? { ...item, stage: 'build' } : item;
 }
 
 // A stage the new track doesn't have restarts at its first stage.
@@ -207,6 +220,7 @@ module.exports = {
   matchesAny,
   nextAction,
   raiseTrack,
+  reopen,
   rework,
   trackRank,
   needsPerson,

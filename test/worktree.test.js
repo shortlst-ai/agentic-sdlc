@@ -291,7 +291,7 @@ test('status on the main checkout shows open work in other worktrees', (t) => {
 
   const output = sdlc(root, 'status').stdout;
   assert.match(output, /0001-labels {2}standard {2}intent {2}next: write intent\.md/);
-  assert.match(output, /\(in \.claude\/worktrees\/labels\)/);
+  assert.match(output, /\(in \.claude\/worktrees\/labels/);
   assert.doesNotMatch(output, /No work items yet/);
   assert.doesNotMatch(output, /No open work items/);
 });

@@ -6,7 +6,7 @@ A software factory for Claude Code. `sdlc` is a plugin that takes each change fr
 - **Code decides what happens next, not the model.** The `sdlc` CLI runs a state machine, and agents can't skip a step by claiming it's done.
 - **You stay in charge.** Only a person can approve a gate, and only a person merges.
 
-> **Status: early.** It has shipped three real changes on one project. See [What's proven](#whats-proven) before you rely on it.
+> **Status: early.** It has shipped four real changes on one project. See [What's proven](#whats-proven) before you rely on it.
 
 ## How it works
 
@@ -49,35 +49,32 @@ The yellow steps are yours. Everything else runs by itself.
 
 Two approvals is the normal case. If a path you've marked as critical is touched, the merge and release also need your sign-off.
 
-Inside a change, your session leads a team of agents. Each role can only do its own job: the reviewer can't edit, and the verifier can only write tests.
+You stay in one main session on your default branch. You talk through each change there, and each build runs in the background in its own worktree. Inside a build, a lead session runs a team of agents, and each role can only do its own job: the reviewer can't edit, and the verifier can only write tests.
 
 ```mermaid
 sequenceDiagram
     actor You
-    participant Lead as Your session
-    participant Team as Agent team
-    participant CLI as sdlc CLI
+    participant Main as Main session
+    participant Build as Background build
     participant CI as GitHub
 
-    You->>Lead: /sdlc:new add-csv-export
-    Lead->>CLI: What's next?
-    CLI-->>Lead: Write the intent
-    Lead->>Team: Spec writer
-    Team-->>Lead: intent.md
-    Lead-->>You: Please review the intent
-    You->>CLI: /sdlc:approve add-csv-export
-    Lead->>Team: Researcher and spec writer
-    Team-->>Lead: spec.md, with its slices
-    Lead-->>You: Please review the spec
-    You->>CLI: /sdlc:approve add-csv-export
+    You->>Main: /sdlc:new add-csv-export
+    Main-->>You: intent.md, please review
+    You->>Main: /sdlc:approve add-csv-export
+    Main-->>You: spec.md, with its slices, please review
+    You->>Main: /sdlc:approve add-csv-export
+    You->>Main: /sdlc:launch add-csv-export
+    Main->>Build: New worktree and branch, with a session in it
+    Note over You,Main: Start other changes here while it builds
     loop Each slice
-        Lead->>Team: Builder, then a fresh reviewer
-        Team-->>Lead: Code, tests, and a review
+        Build->>Build: Builder, then a fresh reviewer
     end
-    Lead->>Team: Verifier and final review
-    Lead->>CI: Open a pull request
+    Build->>Build: Verify and final review
+    Build->>CI: Open a pull request
     CI->>CI: sdlc gates rechecks everything
+    Main-->>You: add-csv-export is ready to merge
     You->>CI: Merge
+    You->>Main: /sdlc:cleanup
 ```
 
 ## Tutorial: your first change
@@ -124,13 +121,7 @@ Then, in your repo's branch protection settings, make `gates` a required check o
 
 ### 4. Start the change
 
-Every change gets its own worktree, branch, and session. Run this in a terminal, because agent teams need one:
-
-```bash
-claude --worktree add-csv-export
-```
-
-Then, in that session:
+Start Claude on your default branch, in a terminal with `claude` or in the VS Code panel. This is your main session, and you can keep it for all your work. Then:
 
 ```text
 /sdlc:new add-csv-export
@@ -138,7 +129,7 @@ Then, in that session:
 Let people export the orders table as CSV.
 ```
 
-The session builds its own environment and writes `intent.md`: the problem, the outcome you want, and any open questions.
+The session writes `intent.md`: the problem, the outcome you want, and any open questions. Until you launch it, the change is a draft: its files sit uncommitted in `.sdlc/`, and your default branch doesn't move.
 
 ### 5. Approve the intent
 
@@ -148,7 +139,7 @@ The session stops and shows you the intent. If it's the wrong idea, stop here, b
 /sdlc:approve add-csv-export
 ```
 
-You can type this in any Claude session on the repo, so one window can handle all your work. Typing `/sdlc:approve` alone lists what's waiting, and `/sdlc:approve all` approves all of it.
+Typing `/sdlc:approve` alone lists what's waiting, and `/sdlc:approve all` approves all of it.
 
 ### 6. Approve the spec
 
@@ -172,40 +163,91 @@ Each `scope` block lists what that slice may touch. Anything outside it gets ref
 
 An approval is tied to the exact text you approved. If the spec changes afterward, the gate reopens.
 
-### 7. Let it run
+### 7. Launch the build
 
-The session picks up by itself. For each slice, a builder writes it test-first, and a fresh reviewer checks that slice alone. The next slice doesn't start until it passes. Then your tests run, and a final review checks how the slices fit together.
+```text
+/sdlc:launch add-csv-export
+```
 
-If a step fails, it goes back and fixes it, up to a limit. If it hits that limit, it stops and tells you. If something turns up mid-build:
+This creates a worktree and a branch, moves the change into them, commits it, and starts a background session there. Your main session is free straight away, so you can start another change.
+
+### 8. Let it run
+
+The build builds its own environment. For each slice, a builder writes it test-first, and a fresh reviewer checks that slice alone. The next slice doesn't start until it passes. Then your tests run, and a final review checks how the slices fit together.
+
+If a step fails, it goes back and fixes it, up to a limit. If it hits that limit, it stops. If something turns up mid-build:
 
 - **New work** that this change doesn't need becomes an issue, so the change stays small.
-- **A hole in the spec** means the session amends the spec, which reopens that gate for you to approve.
+- **A hole in the spec** means the build amends the spec and stops, which reopens that gate for you.
 
-You can check on it at any time:
+You don't need to watch it. When a build needs you, your main session wakes up and says so: an approval is waiting, it stopped with work left, it's stuck on a permission prompt, or it's ready to merge. To check at any time:
 
 ```text
 /sdlc:status
 ```
 
-### 8. Merge
+Approve in your main session as usual, and the build that was waiting starts again by itself. To restart one that stopped, run `/sdlc:launch` again.
 
-When the review passes, the session opens a pull request. Read it, check that `gates` is green, and merge it yourself.
+### 9. Merge and clean up
 
-If your repo has no remote, the session gives you a `git merge` command instead. Run it before you end the session, because removing a worktree deletes its branch and any unmerged commits.
+When the review passes, the build opens a pull request. Read it, check that `gates` is green, and merge it yourself. If your repo has no remote, it gives you a `git merge` command instead.
+
+Then remove the worktree and branch:
+
+```text
+/sdlc:cleanup
+```
+
+It only touches changes that have merged, and it won't delete uncommitted work. A squashed merge can't be told apart from an unmerged branch, so use a merge commit, or delete that branch yourself.
 
 ### A smaller change
 
 A typo fix takes the same steps, and each one is short: a line of intent, a few lines of spec, and one slice. There's no shortcut, because small changes are where assumptions go unchecked. For a bug fix, the spec says which test should fail first.
+
+## Running changes in parallel
+
+Nothing extra is needed. Start another draft in your main session at any time, and launch each one when its spec is approved. Name the change in your commands when several are open.
+
+The first change to merge moves your default branch, so the others need to catch up:
+
+```text
+/sdlc:sync add-csv-export
+```
+
+Each build also syncs itself before it opens its pull request. What happens depends on what changed:
+
+| What main brought in | What happens |
+| --- | --- |
+| Nothing that touches this change's files | The change is updated, and if it was already tested, your tests run again on the combined code |
+| Those tests fail | It goes back to build |
+| Changes to the same files | It goes back to build, then through verify and final review again |
+| A conflict | It goes back to build, and the build resolves the conflict first |
+
+Going back this way doesn't count against the rework limit, because the change did nothing wrong. Slice reviews still stand. A build that's running is left alone.
+
+Don't merge or rebase by hand, because `sync` also keeps the change's records straight. If you already have, run `/sdlc:sync` to repair them.
+
+Specs that share no files can run side by side with no trouble, and the `scope` blocks show you that before you launch. Two changes to the same files will work, but the second pays for another round of verify and review.
+
+Some limits to know about:
+
+- **You hear about builds while the main session is open and idle.** If you closed it, `/sdlc:status` shows where each one got to.
+- **Background sessions need a trusted folder.** If `/sdlc:launch` says the workspace isn't trusted, run `claude` once in that project, accept the prompt, and launch again. Your work is kept.
+- **Builds use your default permission mode.** A build that stops on a permission prompt shows as blocked, and `claude attach` opens it.
+- **`/sdlc:cleanup` can't recognize a squash merge,** because the branch's commits never reach main. Remove that worktree yourself. The same goes for an abandoned change.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `/sdlc:init` | Sets up the factory in a repo |
-| `/sdlc:new <name>` | Starts a change in the current worktree |
-| `/sdlc:next` | Runs the next step |
-| `/sdlc:status` | Shows work items and what each one needs |
+| `/sdlc:new <name>` | Starts a change |
+| `/sdlc:next [name]` | Runs the next step |
+| `/sdlc:launch <name>` | Builds an approved change in its own worktree, or restarts one that stopped |
+| `/sdlc:status` | Shows every change, what it needs, and whether its build is running |
 | `/sdlc:approve [name]` | Records your approval. People only |
+| `/sdlc:sync [name]` | Brings your default branch into a change |
+| `/sdlc:cleanup [name]` | Removes the worktrees and branches of merged changes |
 | `/sdlc:abandon [id] <reason>` | Closes a change, keeping it on record. People only |
 | `/sdlc:learn` | Turns mistakes that repeat across changes into suggested rules |
 | `/sdlc:diagnose <id>` | Adds a likely cause to a CI breach |
@@ -242,13 +284,16 @@ This is new software, so here's what has and hasn't been tested.
 **Tested on real work**
 
 - Three real changes went through an earlier version on one project, with no rework
+- One real change went through this one-path process, with two approvals and no rework
 - Forged approvals and a gutted gate were both blocked on GitHub
 - `/sdlc:approve` works from the terminal and the VS Code panel
 - Installing from GitHub works
+- Two builds ran side by side in the background on a throwaway repo. The second hit real conflicts with the first, synced, and resolved them unattended
 
 **Not proven yet**
 
-- **This one-path process hasn't shipped a real change.** Those three changes used the older tracks. It has run start to finish in a real session, on a throwaway repo, in under six minutes
+- **Parallel builds haven't run on real work.** The main session's parts were run as scripts, so nobody has yet typed `/sdlc:launch` in a live session or the VS Code panel, or been woken there by a finished build. Only auto mode has been tried
+- **`sync` hasn't met a real remote.** Pushing and pull request updates are tested against a local bare repo
 - **Test-first is an instruction, not a lock.** Agents are told to write the failing test first, and nothing enforces it
 - **Verify evidence covers committed code.** Commit before `sdlc verify`, because uncommitted new files aren't counted
 - **The deploy stage isn't built.** It's parked until there's a project to deploy, and a way to separate the agent from the approver
@@ -258,7 +303,7 @@ This is new software, so here's what has and hasn't been tested.
 - **Forged approvals can pass on a solo repo.** An approval with the right hash and a made-up name passes `sdlc gates`, so on a team, pull request review is the real sign-off
 - **The diagnoser isn't fully resistant to instructions planted in CI logs.** It ignored them in 12 of 14 test runs. In the other two it ran `sdlc advance`, which the gate would refuse, and the cause is unexplained
 
-Agent teams are experimental in Claude Code and need a terminal session. In the VS Code panel, the same roles run as plain subagents.
+Agent teams are experimental in Claude Code and need a terminal session. In the VS Code panel, the same roles run as plain subagents, and so do builds started by `/sdlc:launch`.
 
 ## Develop
 

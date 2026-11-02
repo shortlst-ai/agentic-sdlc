@@ -9,4 +9,6 @@ It moves the approved draft to a new worktree and branch, commits it there, and 
 
 Report what it printed, and stop. The build runs by itself, and this session hears when it needs the person. Don't watch it, build anything yourself, or work in its worktree.
 
+A notice that the build stopped can arrive just after a launch, written before it. Before passing one on, run `sdlc status` and report the session state it shows.
+
 If it refuses, say why and stop.

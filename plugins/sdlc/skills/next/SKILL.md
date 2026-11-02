@@ -16,7 +16,7 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 | `approve` | Stop. Show what the person needs to decide, as below, and ask them to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. You can't approve anything |
 | `advance` | Run `sdlc advance`, except at `build` as noted below, then run this skill again |
 | `launch` | Stop. Both documents are approved. Tell the person they can type `/sdlc:launch <name of this item>`. Don't advance it: it can't be built on the default branch |
-| `none` | Commit `.sdlc/`, then run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
+| `none` | Run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
 
 | Stage | Skill |
 | --- | --- |
@@ -42,7 +42,7 @@ git -C <main checkout> merge --no-ff <item's branch>
 
 Tell them to merge before ending this session and removing the worktree, because removing it deletes the branch and its commits. You don't run the merge: it's theirs, as a pull request's would be.
 
-Commit `.sdlc/` whenever this skill finishes a step, so a resumed session can pick up from Git. On the default branch, don't: a draft stays uncommitted until `/sdlc:launch` moves it.
+`sdlc advance` commits the item's records itself, so a resumed session can pick up from Git. Commit the code and reports you write between steps. On the default branch, commit nothing: a draft stays uncommitted until `/sdlc:launch` moves it.
 
 To bring in changes from the default branch, run `sdlc sync`, and never merge or rebase by hand. It keeps the item's records straight. If it reports conflicts, the item is back at build: resolve them, run the tests, and commit.
 

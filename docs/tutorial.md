@@ -21,7 +21,7 @@ Run `claude`, then:
 /sdlc:init
 ```
 
-It finds your setup, test, and format commands, and asks which paths are critical or protected. Then commit what it created, because worktrees can't see it until you do:
+It finds your setup, test, and format commands, and asks which paths are critical or protected. It also proposes a quick check, which runs each time a builder stops, such as your linter plus the tests for changed files. Your full test command runs once per change, at verify. Then commit what it created, because worktrees can't see it until you do:
 
 ```bash
 git add .sdlc .claude/settings.json .gitignore

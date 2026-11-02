@@ -10,4 +10,4 @@ Otherwise, run `sdlc changed` to list the changed files. Spawn a `sdlc:reviewer`
 
 If the verdict is `rework`, run `sdlc rework --reason "<the critical findings>"`, then use `/sdlc:next`.
 
-If it's `pass`, commit the report and use `/sdlc:next`.
+If it's `pass`, use `/sdlc:next`. Advancing commits the report.

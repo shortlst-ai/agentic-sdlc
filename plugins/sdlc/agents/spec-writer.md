@@ -46,7 +46,7 @@ src/export/settings.py
 ```
 ````
 
-Test files are always in scope, so don't list them. Most small changes are one slice. Split when a reader would otherwise have to hold too much at once. A later slice may build on an earlier one.
+Test files are always in scope, so don't list them. Use one slice unless the change would run past about 150 changed lines, or has parts with separate purposes that a reviewer could judge apart. Each slice costs a full round of building and review, so splitting a small fix three ways triples the time without making it safer. A fix that touches several places for the same reason is one slice, and so is a small helper together with the code that uses it. A later slice may build on an earlier one.
 
 For a bug fix, say which test should fail first.
 

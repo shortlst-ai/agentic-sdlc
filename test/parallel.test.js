@@ -108,9 +108,10 @@ function launched(c, slug = 'csv', id = ID) {
   return path.join(c.root, '.claude', 'worktrees', slug);
 }
 
+// `sdlc advance` commits the item's records itself, so there may be nothing left.
 function commitAll(c, cwd) {
   c.git(cwd, 'add', '-A');
-  c.git(cwd, 'commit', '-q', '-m', 'work');
+  c.git(cwd, 'commit', '-q', '--allow-empty', '-m', 'work');
 }
 
 function advance(c, cwd) {
@@ -206,8 +207,18 @@ test('launching moves the draft to a committed worktree and starts a session the
 
   const call = c.calls().split('\n').find((line) => line.includes('--bg'));
   assert.equal(call.split('|')[0], dir);
-  assert.match(call, /--bg --settings .*AGENT_TEAMS.* -n sdlc-csv \/sdlc:next/);
+  assert.match(call, /--bg --settings .*AGENT_TEAMS.* --model sonnet -n sdlc-csv \/sdlc:next/);
   assert.match(call, /\s0$/, 'the session must not look like a child of this one');
+});
+
+test('a project can choose the model its builds run on', (t) => {
+  const c = repo(t);
+  const file = path.join(c.root, '.sdlc', 'config.json');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...config, build_model: 'opus' }));
+  c.git(c.root, 'commit', '-q', '-am', 'builds on opus');
+  launched(c);
+  assert.match(c.calls(), /--bg .*--model opus -n sdlc-csv/);
 });
 
 test('a worktree that can\'t commit leaves the draft where it was', (t) => {

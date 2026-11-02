@@ -16,7 +16,8 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const DEFAULT_CONFIG = {
   version: 1,
-  commands: { setup: null, verify: null, format: null },
+  commands: { setup: null, verify: null, quick: null, format: null },
+  build_model: 'sonnet',
   tracks: { critical: { paths: [] } },
   protected: [],
   tests: ['test/**', 'tests/**', '**/*.test.*', '**/*.spec.*', '**/*_test.*', '**/test_*.*'],
@@ -419,6 +420,16 @@ function writeArtifact(root, item, artifact, text) {
   fs.writeFileSync(path.join(workDir(root), item.id, artifact), text);
 }
 
+// Commits only the item's own folder, so a step's records don't wait on the lead
+// for a commit. A draft on the default branch stays uncommitted until it's launched.
+function commitRecords(root, item, message) {
+  if (item.branch === defaultBranch(root)) return false;
+  const folder = path.join(SDLC_DIR, 'work', item.id);
+  if (git(root, ['add', '-A', '--', folder]) === null) return false;
+  if (git(root, ['diff', '--cached', '--quiet', '--', folder]) !== null) return false;
+  return git(root, ['commit', '-q', '-m', message, '--', folder]) !== null;
+}
+
 function artifactPath(root, item, artifact) {
   return path.join(workDir(root), item.id, artifact);
 }
@@ -528,6 +539,7 @@ module.exports = {
   changedFiles,
   changedLines,
   codeFingerprint,
+  commitRecords,
   countStopBlock,
   createItem,
   defaultBranch,

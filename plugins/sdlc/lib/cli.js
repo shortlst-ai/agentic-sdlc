@@ -22,7 +22,7 @@ const { SdlcError } = workspace;
 const USAGE = `Usage: sdlc <command>
 
 Commands:
-  init [--setup C] [--verify C] [--format C] [--critical a,b] [--protected a,b]
+  init [--setup C] [--verify C] [--quick C] [--format C] [--critical a,b] [--protected a,b]
                                      Set up the factory in this repo
   setup                              Build this worktree's environment
   new <slug> [--files a,b] [--track critical]
@@ -63,6 +63,7 @@ const OPTIONS = {
   branch: { type: 'string' },
   setup: { type: 'string' },
   verify: { type: 'string' },
+  quick: { type: 'string' },
   format: { type: 'string' },
   critical: { type: 'string' },
   protected: { type: 'string' },
@@ -252,6 +253,9 @@ function advance(positionals) {
   const event = { from: item.stage, to: result.item.stage, commit: workspace.headCommit(root) };
   workspace.saveItem(root, record(result.item, event));
   console.log(`${item.id}  ${item.stage} -> ${result.item.stage}`);
+  if (workspace.commitRecords(root, result.item, `Advance ${item.id} to ${result.item.stage}`)) {
+    console.log(`Committed .sdlc/work/${item.id}.`);
+  }
   return 0;
 }
 
@@ -414,7 +418,7 @@ function version() {
 
 function initialize(positionals, values) {
   const options = {
-    commands: { setup: values.setup, verify: values.verify, format: values.format },
+    commands: { setup: values.setup, verify: values.verify, quick: values.quick, format: values.format },
     critical: parseFiles(values.critical),
     protected: parseFiles(values.protected),
   };

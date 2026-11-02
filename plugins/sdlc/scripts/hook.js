@@ -8,7 +8,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { reviewBuild } = require('../lib/check');
+const { reviewBuild, stopCheck } = require('../lib/check');
 const machine = require('../lib/machine');
 const { checkCommand, checkEdit, roleOf } = require('../lib/policy');
 const workspace = require('../lib/workspace');
@@ -107,8 +107,8 @@ function subagentStop(root, input) {
   if (!item) return;
   const config = workspace.loadConfig(root);
   const { problems } = reviewBuild(root, item, config);
-  const command = config.commands?.verify;
-  if (problems.length === 0 && command) {
+  const command = problems.length === 0 ? stopCheck(root, item, config) : null;
+  if (command) {
     const result = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
     if (result.status !== 0) {
       const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd().split('\n').slice(-20).join('\n');

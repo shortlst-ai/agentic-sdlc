@@ -30,9 +30,10 @@ function touch(cwd, file, content = 'x\n') {
   fs.writeFileSync(path.join(cwd, file), content);
 }
 
+// `sdlc advance` commits the item's records itself, so there may be nothing left.
 function commitAll(cwd) {
   git(cwd, 'add', '-A');
-  git(cwd, 'commit', '-q', '-m', 'work');
+  git(cwd, 'commit', '-q', '--allow-empty', '-m', 'work');
 }
 
 function sha(content) {

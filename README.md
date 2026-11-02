@@ -5,6 +5,7 @@ A software factory for Claude Code. `sdlc` is a plugin that takes each change fr
 - **Git holds everything.** Specs, plans, approvals, and evidence are committed files, so work survives a closed session and leaves an audit trail.
 - **Code decides what happens next, not the model.** The `sdlc` CLI runs a state machine, and agents can't skip a step by claiming it's done.
 - **You stay in charge.** Only a person can approve a gate, and only a person merges.
+- **You can read what you approve.** AI-written specs tend to run for pages. Here each one opens with what you're approving in a few lines, with a diagram where it helps. See [Specs you can read](#specs-you-can-read).
 
 > **Status: early.** It has shipped four real changes on one project. See [What's proven](#whats-proven) before you rely on it.
 
@@ -76,6 +77,40 @@ sequenceDiagram
     You->>CI: Merge
     You->>Main: /sdlc:cleanup
 ```
+
+## Specs you can read
+
+Ask an agent for a spec and you often get pages: background, definitions, how it checked things, and the change buried somewhere inside. You're then asked to approve all of it. Most people skim, which defeats the point of a gate.
+
+Here, everything you approve is written for you, and code checks it:
+
+- **The decision comes first.** Every spec opens with "What you're approving", in no more than 10 lines. On most changes you can decide from that alone, and it's all the session shows you.
+- **You approve only what binds the build.** The agents' research and working-out go in `notes.md`, which builders read and you don't approve.
+- **Diagrams show structure.** When a change affects how parts connect, a flow, or states, the spec draws it in Mermaid instead of describing it.
+- **Length is checked, not just requested.** At a gate, `/sdlc:status` gives the word count and warns when a document runs long for its size. A long spec goes back to be cut before you see it.
+- **A changed spec shows only what changed.** If the build has to amend a spec you approved, you see a diff, not the whole file again.
+
+For a change that caches customer lookups, the top of the spec looks like this:
+
+> **What you're approving**
+>
+> - **Change:** cache customer lookups in the service for 60 seconds
+> - **Before → after:** repeat lookups skip the database, and an update shows straight away
+> - **Slices:** S1 Add the cache (`shop/service.py`); S2 Drop a customer on update (`shop/service.py`)
+> - **Out of scope:** caching anything other than customers
+> - **Needs you:** is 60 seconds stale enough to accept?
+
+```mermaid
+flowchart LR
+    get[Get customer] --> cached{In the cache,<br/>under 60s old?}
+    cached -->|Yes| reply[Return it]
+    cached -->|No| db[(Database)]
+    db --> reply
+    update[Update customer] --> drop[Drop them from the cache]
+    drop --> db
+```
+
+Before this, an 80-line fix came with a 2,200-word spec. In evals, a typo fix now gets about 120 words, and a change across three modules gets a diagram. A real change hasn't been through it yet. See [What's proven](#whats-proven).
 
 ## Tutorial: your first change
 

@@ -24,8 +24,6 @@ const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TE
 const CLAUDE_TIMEOUT_MS = 60000;
 const SETTINGS = path.join('.claude', 'settings.json');
 
-// `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
-const BLOCKED = 'waiting on you, at a permission prompt or a question';
 
 function slugOf(item) {
   return item.id.replace(/^\d+-/, '');
@@ -173,13 +171,11 @@ function promote(root, { item }) {
   return dir;
 }
 
+// A blocked session isn't doing anything, and is often just one that ended its turn
+// with a message. Its state is in Git, so it's restarted like a stopped one.
 function refuseIfRunning({ root: dir, item }) {
   const [session] = sessionsAt(backgroundSessions(), dir);
-  const state = sessionState(session);
-  if (state === 'running') throw new SdlcError(`${item.id} is still running`);
-  if (state === 'blocked') {
-    throw new SdlcError(`${item.id} is ${BLOCKED}: run claude attach ${sessionName(item)}`);
-  }
+  if (sessionState(session) === 'running') throw new SdlcError(`${item.id} is still running`);
 }
 
 function resume(found) {
@@ -335,8 +331,9 @@ function attention({ root: dir, item }, sessions) {
   const state = sessionState(session);
   if (state === 'running') return null;
   if (!isOpen(item)) return `${item.id} has finished, so it's ready to merge.`;
+  // `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
   if (state === 'blocked') {
-    return `${item.id} is ${BLOCKED}, so run claude attach ${sessionName(item)} in a terminal.`;
+    return `${item.id}'s build is waiting for a reply. To see what it asked, run claude attach ${sessionName(item)} in a terminal. To start it again from its last commit, use /sdlc:launch ${slugOf(item)}.`;
   }
   return `${item.id} stopped at ${item.stage} with work left, so use /sdlc:launch ${slugOf(item)}.`;
 }

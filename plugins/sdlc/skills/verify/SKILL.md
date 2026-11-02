@@ -8,4 +8,4 @@ Commit, then run `sdlc verify`. It only vouches for committed code. It runs the 
 
 If it fails, run `sdlc rework --reason "<what failed>"`, then use `/sdlc:next`.
 
-If it passes, commit the evidence and use `/sdlc:next`.
+If it passes, use `/sdlc:next`. Advancing commits the evidence.

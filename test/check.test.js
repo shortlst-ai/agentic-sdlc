@@ -85,6 +85,12 @@ function atBuild(t, verify, spec = SPEC) {
   return cwd;
 }
 
+function setQuick(cwd, quick) {
+  const file = path.join(cwd, '.sdlc', 'config.json');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...config, commands: { ...config.commands, quick } }));
+}
+
 function stop(cwd, extra = {}) {
   const input = { cwd, agent_type: 'sdlc:builder', agent_id: 'a1', ...extra };
   return spawnSync('node', [HOOK, 'subagent-stop'], { input: JSON.stringify(input), encoding: 'utf8', env: env() });
@@ -318,6 +324,14 @@ describe('slices', () => {
     assert.doesNotMatch(sdlc(cwd, 'check').stdout, /Warning/);
   });
 
+  test('advancing commits the item\'s records, so the lead doesn\'t have to', (t) => {
+    const cwd = atBuild(t);
+    const log = execFileSync('git', ['log', '-1', '--format=%s'], { cwd, encoding: 'utf8' }).trim();
+    assert.equal(log, `Advance ${ID} to build`);
+    const left = execFileSync('git', ['status', '--porcelain', '--', '.sdlc'], { cwd, encoding: 'utf8' });
+    assert.equal(left, '');
+  });
+
   test('an amended spec reopens its gate, even in the middle of a build', (t) => {
     const cwd = atBuild(t);
     touch(cwd, `.sdlc/work/${ID}/spec.md`, `${SPEC}\nOne more thing.\n`);
@@ -468,6 +482,32 @@ describe('the builder stop hook', () => {
     touch(cwd, 'src/other/a.py');
     assert.equal(stop(cwd, { agent_type: 'sdlc:reviewer' }).stdout, '');
     assert.equal(stop(cwd, { agent_type: '' }).stdout, '');
+  });
+
+  test('runs the quick check instead of the full suite, with the changed tests filled in', (t) => {
+    const cwd = atBuild(t, 'echo full >> ran; exit 1');
+    setQuick(cwd, 'echo {tests} >> ran');
+    touch(cwd, 'src/api/a.py');
+    touch(cwd, "tests/test_a's.py");
+    assert.equal(stop(cwd).stdout, '');
+    assert.equal(fs.readFileSync(path.join(cwd, 'ran'), 'utf8'), "tests/test_a's.py\n");
+  });
+
+  test('a failing quick check sends the build back', (t) => {
+    const cwd = atBuild(t);
+    setQuick(cwd, 'echo quick broke; exit 1');
+    touch(cwd, 'src/api/a.py');
+    const output = JSON.parse(stop(cwd).stdout);
+    assert.equal(output.decision, 'block');
+    assert.match(output.reason, /quick broke/);
+  });
+
+  test('a quick check for changed tests skips a slice with none, leaving it to verify', (t) => {
+    const cwd = atBuild(t);
+    setQuick(cwd, 'echo {tests} >> ran');
+    touch(cwd, 'src/api/a.py');
+    assert.equal(stop(cwd).stdout, '');
+    assert.equal(fs.existsSync(path.join(cwd, 'ran')), false);
   });
 
   test('does nothing when no item is at build', (t) => {

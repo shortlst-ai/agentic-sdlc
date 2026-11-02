@@ -78,3 +78,24 @@ The run found four things unit tests couldn't:
 - **Approving an edited spec needs a person each time.** The build rightly amended its spec a second time rather than edit outside its scope, which cost a second approval. That's the design, but on a tight spec it will happen.
 
 One false alarm is worth keeping. A launch timed out at 60 seconds, and the background service got the blame for holding the output pipe. A bare `claude --bg` then took a second. The real cause was the test wrapper calling itself. Output still goes to a file, because a test shows a pipe would hang if a child kept it open, but nobody has shown the real service doing that.
+
+## Where the signed-URL fix's time went
+
+Measured from its transcripts, 2026-11-02. Build, verify, and final review took about 36 minutes of wall time.
+
+| Cause | Time |
+| --- | --- |
+| The full suite (ruff, mypy, pytest), run 13 times at 77–90 seconds: 6 by builders, 4 by the builder stop hook, 2 by the verifier, 1 by `sdlc verify` | About 18 minutes |
+| Three slices for 80 lines, each with a builder, a stop-hook run, a review, and commits | About 6–8 minutes over one slice |
+| The verifier, mostly writing acceptance tests that repeated the unit tests | 8.5 minutes |
+| The lead on Opus: 251 turns, 62 `git` and 31 `sdlc` calls | Spread throughout |
+
+What changed in response:
+
+- The stop hook runs the project's quick check, `commands.quick`, and the full suite runs once, at verify. Builders run the tests for what they changed.
+- One slice is the default unless a change passes about 150 lines or has separate purposes. On an eval of a helper used in three places, the old wording gave one slice in 2 of 5 runs. The new wording gave 4 of 5 at first, and 5 of 5 once an example that invited the split was removed.
+- The verifier maps each criterion to an existing test, and writes tests only for the gaps.
+- Background builds run on `build_model`, Sonnet by default, and `sdlc advance` commits the item's records itself.
+
+None of this has been timed on a real change yet.
+

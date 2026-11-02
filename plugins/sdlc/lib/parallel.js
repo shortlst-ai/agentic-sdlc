@@ -94,7 +94,8 @@ function stopSessions(dir) {
 function startSession(dir, item) {
   const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-launch-')), 'output');
   const output = fs.openSync(log, 'w');
-  const args = ['--bg', '--settings', BUILD_SETTINGS, '-n', sessionName(item), START_PROMPT];
+  const model = workspace.loadConfig(dir).build_model ?? 'sonnet';
+  const args = ['--bg', '--settings', BUILD_SETTINGS, '--model', model, '-n', sessionName(item), START_PROMPT];
   const options = { cwd: dir, env: claudeEnv(), stdio: ['ignore', output, output], timeout: CLAUDE_TIMEOUT_MS };
   const result = spawnSync('claude', args, options);
   fs.closeSync(output);

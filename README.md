@@ -146,7 +146,7 @@ The model can't run `approve` or `abandon`. They work only when a person types t
 
 ## Questions
 
-**How long does a change take?** On a real project, an 80-line fix with three slices took about 43 minutes of agent time. You're needed only at the two approvals and the merge. Tiny changes on a test repo finish in a few minutes.
+**How long does a change take?** You're needed only at the two approvals and the merge, and the rest runs by itself. On a real project, an 80-line fix took about 43 minutes of agent time. About half of the build went on running the same 80-second test suite 13 times. Now the full suite runs once per change, a small fix defaults to one slice, and builds run on Sonnet. That should roughly halve a change like it, but it hasn't been measured on a real change yet. A slow test suite costs the most, so a parallel test runner helps too.
 
 **What does it cost?** It runs on your Claude Code plan or API usage. Most roles use Sonnet, and research uses Haiku. There aren't per-change cost figures yet.
 

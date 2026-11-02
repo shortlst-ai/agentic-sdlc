@@ -4,6 +4,9 @@
 // the diff rather than watching edits, because Bash can reach around any edit
 // hook, and a diff can't be dodged by committing the work.
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { classify, isOpen, matchesAny, raiseTrack, reviewVerdict, trackRank } = require('./machine');
 const workspace = require('./workspace');
 
@@ -78,6 +81,21 @@ function sizeWarnings(root, item, config) {
   return warnings;
 }
 
+// What runs when a builder stops. The full suite runs once, at verify, so a slice
+// gets the project's quick check if it has one, with `{files}` and `{tests}` filled
+// in from this change. Null when there's nothing for it to check.
+function stopCheck(root, item, config) {
+  const quick = config.commands?.quick;
+  if (!quick) return config.commands?.verify ?? null;
+  const files = workspace.changedFiles(root, item.base).filter((file) => fs.existsSync(path.join(root, file)));
+  const tests = files.filter((file) => matchesAny(file, config.tests));
+  if ((quick.includes('{files}') && files.length === 0) || (quick.includes('{tests}') && tests.length === 0)) {
+    return null;
+  }
+  const quote = (list) => list.map((file) => `'${file.replaceAll("'", "'\\''")}'`).join(' ');
+  return quick.replaceAll('{files}', quote(files)).replaceAll('{tests}', quote(tests));
+}
+
 // Also advice. A person approves these, so they're held to what a person will
 // read: the intent fits on a screen, and the spec opens with what's being approved.
 // Code blocks don't count, because the scope blocks are the point.
@@ -131,4 +149,5 @@ module.exports = {
   reviewBuild,
   reviewSlices,
   sizeWarnings,
+  stopCheck,
 };

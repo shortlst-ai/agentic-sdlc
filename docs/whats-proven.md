@@ -14,6 +14,7 @@ This is new software, so here's what has and hasn't been tested.
 **Not proven yet**
 
 - **Parallel builds haven't run on real work.** The main session's parts were run as scripts, so nobody has yet typed `/sdlc:launch` in a live session or the VS Code panel, or been woken there by a finished build. Only auto mode has been tried
+- **The speedups haven't been timed on a real change.** The full suite now runs once per change, small fixes default to one slice, and builds run on Sonnet. Each part is tested, and the one-slice rule is checked by an eval, but the time saved is an estimate
 - **Shorter specs are only tested in evals.** A typo fix gets about 120 words with no diagram, and a change across three files gets a diagram. A real change hasn't been through it, and the length limits are a first guess
 - **`sync` hasn't met a real remote.** Pushing and pull request updates are tested against a local bare repo
 - **Test-first is an instruction, not a lock.** Agents are told to write the failing test first, and nothing enforces it

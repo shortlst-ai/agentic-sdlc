@@ -136,7 +136,7 @@ describe('sdlc init options', () => {
     const args = ['init', '--setup', 'make env', '--verify', 'make test', '--format', 'fmt {file}', '--critical', 'a/**,b/**', '--protected', 'gen/**'];
     assert.equal(spawnSync(CLI, args, { cwd, encoding: 'utf8' }).status, 0);
     const written = config(cwd);
-    assert.deepEqual(written.commands, { setup: 'make env', verify: 'make test', format: 'fmt {file}' });
+    assert.deepEqual(written.commands, { setup: 'make env', verify: 'make test', quick: null, format: 'fmt {file}' });
     assert.deepEqual(written.tracks.critical.paths, ['a/**', 'b/**']);
     assert.deepEqual(written.protected, ['gen/**']);
   });
@@ -144,7 +144,7 @@ describe('sdlc init options', () => {
   test('anything not given keeps its default', (t) => {
     const cwd = tempDir(t);
     spawnSync(CLI, ['init', '--verify', 'make test'], { cwd, encoding: 'utf8' });
-    assert.deepEqual(config(cwd).commands, { setup: null, verify: 'make test', format: null });
+    assert.deepEqual(config(cwd).commands, { setup: null, verify: 'make test', quick: null, format: null });
   });
 });
 

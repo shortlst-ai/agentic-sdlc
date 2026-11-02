@@ -7,7 +7,7 @@ If `git status` shows an unfinished merge, `sdlc sync` left conflicts. Resolve t
 Work through the slices in `spec.md` in order, skipping any that already passed in `evidence/reviews/`. A spec with no slice headings is one slice, `S1`. For each slice:
 
 1. Spawn one `sdlc:builder`, telling it the slice and the work item folder. Use `/sdlc:team` for how.
-2. When it stops, a hook has already checked its diff and run the tests, and sends it back if they fail. If it gave up, tell the person.
+2. When it stops, a hook has already checked its diff and run the project's quick check, and sends it back if they fail. If it gave up, tell the person.
 3. Commit the work, with `Slice: S1` as the last line of each commit message.
 4. Spawn a `sdlc:reviewer` for this slice only, giving it the work item folder and the slice's commits. It has seen none of the building, which is the point.
 5. Save its report as written to `evidence/reviews/S1.md` in the work item folder, and commit it.

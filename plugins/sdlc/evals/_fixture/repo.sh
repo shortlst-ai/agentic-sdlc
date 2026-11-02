@@ -14,9 +14,10 @@ approval() {
     "$1" "$2" "$(sha "$ITEM/$2")" >"$ITEM/approvals/$1.json"
 }
 
+# `sdlc advance` commits the item's records itself, so there may be nothing left.
 commit() {
   git add -A
-  git commit -q -m "$1"
+  git commit -q --allow-empty -m "$1"
 }
 
 # Runs are sandboxed away from the plugin's own folder, so the CLI they call lives
@@ -65,6 +66,20 @@ at_layered_spec() {
   commit 'Add the shop'
   sdlc new feature >/dev/null
   printf '# Intent\n\nEvery customer lookup goes from the API through the service to the database, and the database is slow. Cache lookups in the service for 60 seconds, and drop a customer from the cache when they are updated, so nobody sees stale data after an update.\n' >"$ITEM/intent.md"
+  approval intent intent.md
+  sdlc advance >/dev/null
+  commit 'Approve the intent'
+}
+
+# Past the intent gate on a small fix that touches the same thing in three places.
+at_small_fix_in_three_places() {
+  on_a_worktree_branch
+  mkdir -p shop
+  printf 'def fetch(url, token):\n    if not url:\n        raise ValueError(f"no url given, token={token}")\n    return url\n\n\ndef upload(path, token):\n    if not path:\n        raise ValueError(f"no file given, token={token}")\n    return path\n' >shop/client.py
+  printf 'def sync(items, token):\n    if items is None:\n        raise RuntimeError(f"nothing to sync, token={token}")\n    return len(items)\n' >shop/sync.py
+  commit 'Add the shop client'
+  sdlc new feature >/dev/null
+  printf '# Intent\n\nThree error messages print the API token: two in shop/client.py and one in shop/sync.py. Anyone reading the logs can see it. Add a small helper that masks secrets in a message, and use it in all three places so later messages can use it too.\n' >"$ITEM/intent.md"
   approval intent intent.md
   sdlc advance >/dev/null
   commit 'Approve the intent'

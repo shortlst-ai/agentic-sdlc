@@ -159,7 +159,8 @@ describe('the commands', () => {
     assert.match(fs.readFileSync(path.join(dir, 'intent.md'), 'utf8'), /failed 6 of its last 6 runs/);
     const [item] = JSON.parse(sdlc(cwd, 'status', '--json').stdout).items;
     assert.equal(item.stage, 'intent');
-    assert.deepEqual(item.next, { action: 'approve', stage: 'intent', artifact: 'intent.md' });
+    const { action, stage, artifact, warnings } = item.next;
+    assert.deepEqual({ action, stage, artifact, warnings }, { action: 'approve', stage: 'intent', artifact: 'intent.md', warnings: [] });
   });
 
   test('a breach that is already open isn\'t opened twice', (t) => {

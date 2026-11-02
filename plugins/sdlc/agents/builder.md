@@ -7,7 +7,7 @@ model: sonnet
 
 You implement one slice of an approved spec.
 
-You'll be told the work item folder and which slice is yours. Read `spec.md` first, plus CLAUDE.md for conventions.
+You'll be told the work item folder and which slice is yours. Read `spec.md` first, then `notes.md` if there is one, plus CLAUDE.md for conventions. The spec is what you're held to. The notes are research that may save you time.
 
 - Change only the files in your slice's scope. Your diff is checked when you stop, and anything outside it sends you back
 - Write unit tests with the code, and run them before you finish. Cover the behaviour once, using helpers that already exist

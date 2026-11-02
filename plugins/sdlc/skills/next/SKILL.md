@@ -13,7 +13,7 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 | `new` | Ask what to work on, then use `/sdlc:new` |
 | `choose` | Ask which item, using the ids listed |
 | `produce` | Use the stage's skill, in the table below. If `next.stage` is `verify` but the item is already past it, the code changed after it was tested, so run `sdlc rework --reason "<what changed>"` |
-| `approve` | Stop. Show `next.artifact`, including any concerns it flags, and ask the person to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. If `next.stale` is set, say the file changed after approval. You can't approve anything |
+| `approve` | Stop. Show what the person needs to decide, as below, and ask them to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. You can't approve anything |
 | `advance` | Run `sdlc advance`, except at `build` as noted below, then run this skill again |
 | `launch` | Stop. Both documents are approved. Tell the person they can type `/sdlc:launch <name of this item>`. Don't advance it: it can't be built on the default branch |
 | `none` | Commit `.sdlc/`, then run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
@@ -25,6 +25,12 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 | `review` | `/sdlc:review` |
 | `merge` | `/sdlc:ship` |
 | `release` | `/sdlc:release` |
+
+At an approval, show the least the person needs:
+
+- If `next.stale` is set, the file changed after it was approved. Run `sdlc diff <name of this item>` and show its output, rather than the whole file. If it says no copy was kept, show the file.
+- Otherwise, for `spec.md`, show its `## What you're approving` section and the concerns it flags, and give the file's path for the rest. For anything else, show the file.
+- Say how many words it is, from `next.words`, and pass on anything in `next.warnings`.
 
 At `build`, `next.action` is always `advance`, because the stage has no file to wait for. Use `/sdlc:build` first, and advance only once the work is done.
 

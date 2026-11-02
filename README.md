@@ -161,7 +161,9 @@ src/orders/views.py
 
 Each `scope` block lists what that slice may touch. Anything outside it gets refused later, so check these. If you'd change something, say so, and the session updates the spec. Then approve it the same way.
 
-An approval is tied to the exact text you approved. If the spec changes afterward, the gate reopens.
+The spec opens with a short "What you're approving" section, and that's what the session shows you. On most changes you can decide from that alone, and the rest is there if you want it. Research the agents did goes in `notes.md`, which you don't approve. If a document runs long, `/sdlc:status` warns you, with its word count.
+
+An approval is tied to the exact text you approved. If the spec changes afterward, the gate reopens, and the session shows you only what changed.
 
 ### 7. Launch the build
 
@@ -295,6 +297,7 @@ This is new software, so here's what has and hasn't been tested.
 **Not proven yet**
 
 - **Parallel builds haven't run on real work.** The main session's parts were run as scripts, so nobody has yet typed `/sdlc:launch` in a live session or the VS Code panel, or been woken there by a finished build. Only auto mode has been tried
+- **Shorter specs are only tested on a typo.** An eval writes one that opens with what you're approving, in about 120 words, with no diagram or background. A real change of any size hasn't been through it, and the length limits are a first guess
 - **`sync` hasn't met a real remote.** Pushing and pull request updates are tested against a local bare repo
 - **Test-first is an instruction, not a lock.** Agents are told to write the failing test first, and nothing enforces it
 - **Verify evidence covers committed code.** Commit before `sdlc verify`, because uncommitted new files aren't counted

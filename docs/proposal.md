@@ -200,6 +200,20 @@ A build that stops is restarted fresh rather than resumed, because `--resume` on
 
 Parallel work makes the default branch move under a change, so a change has to be able to catch up. `sdlc sync` merges rather than rebases, so commits keep their hashes and an open pull request stays valid. It compares the change's own files before and after. If they came out the same, its reviews stand and only the tests run again, on the combined code, because `sdlc gates` doesn't run tests. If they differ, it goes back through build, verify, and final review. This isn't counted as rework, because the change did nothing wrong, and slice reviews stay, because each slice is as it was.
 
+### Documents written for the person who approves them
+
+The first real change on one path had a 2,200-word spec for about 80 lines of source. Most of it was the agent's working: definitions, a regex checked against real messages, and findings next to the change. A person approves the whole file, so they were asked to sign off on text that didn't bind the build.
+
+| Measure | How |
+| --- | --- |
+| Approve only what binds the build | `spec.md` holds behaviour, criteria, slices, and questions. Research and working-out go in `notes.md`, which builders read and nobody approves |
+| Lead with the decision | `spec.md` opens with "What you're approving", in up to 10 lines, which is all the gate shows |
+| Check length in code | `sdlc status` gives the word count at a gate, and warns past 250 words for an intent, or 350 for a spec plus 150 a slice. The lead sends a spec back once to cut |
+| Re-approve from a diff | An approval keeps a copy of the text, so `sdlc diff` shows only what changed |
+| Diagrams by rule | Only for a flow across parts, a state machine, or a call sequence, and only to replace prose. The reviewer checks it against the code |
+
+Length is a warning, not a refusal, because some changes really are larger. Diagrams aren't the default because Mermaid shows as source in a terminal, and a wrong diagram is harder to catch than a wrong sentence.
+
 ---
 
 ## 6. What gets built

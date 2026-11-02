@@ -108,6 +108,29 @@ test('editing an approved artifact reopens its gate until it is approved again',
   assert.notEqual(approvals[0].sha256, approvals[1].sha256);
 });
 
+test('re-approving an edited spec shows what changed, not all of it again', (t) => {
+  const cwd = repo(t);
+  writeSpec(cwd, '# Spec\n\nExports orders as CSV.\n\nOut of scope: Excel.\n');
+  assert.match(sdlc(['diff'], cwd).stderr, /nothing changed since an approval/);
+  hook(cwd);
+  assert.equal(fs.readFileSync(itemPath(cwd, 'approvals', 'spec.md'), 'utf8'), '# Spec\n\nExports orders as CSV.\n\nOut of scope: Excel.\n');
+
+  writeSpec(cwd, '# Spec\n\nExports orders and refunds as CSV.\n\nOut of scope: Excel.\n');
+  const shown = sdlc(['diff'], cwd);
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.match(shown.stdout, /\{\+and refunds\+\}/);
+  assert.doesNotMatch(shown.stdout, /^diff --git/m);
+});
+
+test('an approval from before copies were kept says to read the whole file', (t) => {
+  const cwd = repo(t);
+  writeSpec(cwd);
+  hook(cwd);
+  fs.rmSync(itemPath(cwd, 'approvals', 'spec.md'));
+  writeSpec(cwd, 'changed');
+  assert.match(sdlc(['diff'], cwd).stderr, /read the whole file/);
+});
+
 test('refuses when nothing is waiting on approval', (t) => {
   const cwd = repo(t);
   const output = hook(cwd);

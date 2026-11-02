@@ -49,7 +49,7 @@ The yellow steps are yours. Everything else runs by itself.
 
 Two approvals is the normal case. If a path you've marked as critical is touched, the merge and release also need your sign-off.
 
-You stay in one main session on your default branch. You talk through each change there, and each build runs in the background in its own worktree. Inside a build, a lead session runs a team of agents, and each role can only do its own job: the reviewer can't edit, and the verifier can only write tests.
+You stay in one main session on your default branch. You talk through each change there, and each build runs in the background in its own worktree. Inside a build, a lead session hands each role to its own agent, and each role can only do its own job: the reviewer can't edit, and the verifier can only write tests.
 
 ```mermaid
 sequenceDiagram
@@ -171,6 +171,8 @@ An approval is tied to the exact text you approved. If the spec changes afterwar
 
 This creates a worktree and a branch, moves the change into them, commits it, and starts a background session there. Your main session is free straight away, so you can start another change.
 
+Background sessions only run in a folder you've trusted. If launch says the workspace isn't trusted, run `claude` once in your project, accept the prompt, and launch again. Your change is kept.
+
 ### 8. Let it run
 
 The build builds its own environment. For each slice, a builder writes it test-first, and a fresh reviewer checks that slice alone. The next slice doesn't start until it passes. Then your tests run, and a final review checks how the slices fit together.
@@ -180,7 +182,7 @@ If a step fails, it goes back and fixes it, up to a limit. If it hits that limit
 - **New work** that this change doesn't need becomes an issue, so the change stays small.
 - **A hole in the spec** means the build amends the spec and stops, which reopens that gate for you.
 
-You don't need to watch it. When a build needs you, your main session wakes up and says so: an approval is waiting, it stopped with work left, it's stuck on a permission prompt, or it's ready to merge. To check at any time:
+You don't need to watch it. While your main session is open and idle, it wakes up when a build needs you and says so: an approval is waiting, it stopped with work left, it's stuck on a permission prompt, or it's ready to merge. To check at any time:
 
 ```text
 /sdlc:status

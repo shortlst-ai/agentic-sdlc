@@ -1,6 +1,6 @@
-# ai-sdlc
+# Agentic-SDLC: a software factory that takes each change from idea to merged pull request
 
-A software factory for Claude Code. `sdlc` is a plugin that takes each change from an idea to a merged pull request through agents, tests, and review, and stops only when it needs you.
+`sdlc` is a Claude Code plugin. It runs each change through agents, tests, and review, and stops only when it needs you.
 
 - **Git holds everything.** Specs, plans, approvals, and evidence are committed files, so work survives a closed session and leaves an audit trail.
 - **Code decides what happens next, not the model.** The `sdlc` CLI runs a state machine, and agents can't skip a step by claiming it's done.
@@ -121,8 +121,8 @@ This walks through adding a CSV export to a project. You need Claude Code, Node 
 From your repo:
 
 ```bash
-claude plugin marketplace add shortlst-ai/ai-sdlc
-claude plugin install sdlc@ai-sdlc --scope project
+claude plugin marketplace add shortlst-ai/agentic-sdlc
+claude plugin install sdlc@agentic-sdlc --scope project
 ```
 
 `--scope project` turns the plugin on for this repo only.
@@ -149,7 +149,7 @@ The local checks stop mistakes. This one stops everything else, because it runs 
 ```bash
 mkdir -p .github/workflows
 curl -o .github/workflows/sdlc-gates.yml \
-  https://raw.githubusercontent.com/shortlst-ai/ai-sdlc/main/plugins/sdlc/templates/sdlc-gates.yml
+  https://raw.githubusercontent.com/shortlst-ai/agentic-sdlc/main/plugins/sdlc/templates/sdlc-gates.yml
 ```
 
 Then, in your repo's branch protection settings, make `gates` a required check on your default branch.

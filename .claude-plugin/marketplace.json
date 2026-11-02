@@ -1,5 +1,5 @@
 {
-  "name": "ai-sdlc",
+  "name": "agentic-sdlc",
   "description": "An AI-native software factory that takes each change from an idea to a merged pull request",
   "owner": {
     "name": "Xinming An",

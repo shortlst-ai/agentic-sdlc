@@ -1,3 +1,5 @@
+![agentic sdlc](assets/wordmark.png)
+
 # sdlc
 
 A software factory for Claude Code. You describe a change and approve two short documents: what's wrong, and exactly what will change. Agents then build it a slice at a time, test it, and review it, and you merge the pull request. Specs, approvals, and evidence are committed to Git, and code decides each step rather than the model. Only a person can approve or merge.

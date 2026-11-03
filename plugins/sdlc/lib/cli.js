@@ -8,6 +8,7 @@ const { parseArgs } = require('node:util');
 const { documentWarnings, proseWords, reviewBuild, reviewSlices, sizeWarnings } = require('./check');
 const { runGates } = require('./gates');
 const machine = require('./machine');
+const { merge: mergeChange } = require('./merge');
 const { coverage, detect, intentFor, slugFor } = require('./detect');
 const { collect } = require('./metrics');
 const parallel = require('./parallel');
@@ -37,6 +38,7 @@ Commands:
   launch <id>                        Move an approved draft to a worktree and build
                                      it in a background session, or restart a build
   sync [<id>]                        Bring the default branch into a change
+  merge [<id>]                       Merge a finished change a person signed off
   cleanup [<id>]                     Remove the worktrees of merged changes
   track [<id>] [<track>] [--files a,b]
                                      Raise a track, or add files to the item.
@@ -285,6 +287,11 @@ function sync(positionals) {
   return outcome === 'conflict' ? 1 : 0;
 }
 
+function merge(positionals) {
+  console.log(mergeChange(requireRoot(), positionals[0]));
+  return 0;
+}
+
 function cleanup(positionals) {
   const removed = parallel.cleanup(requireRoot(), positionals[0]);
   console.log(removed.length === 0 ? 'No merged changes to clean up.' : `Removed ${removed.join(', ')}.`);
@@ -449,6 +456,7 @@ function dispatch(argv) {
     rework,
     launch,
     sync,
+    merge,
     cleanup,
     track,
     gates,

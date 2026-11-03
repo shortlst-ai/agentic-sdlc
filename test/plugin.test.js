@@ -112,11 +112,12 @@ describe('skills', () => {
     assert.match(skill('learn'), /Don't change anything yourself/);
   });
 
-  test('skills never tell the model to approve or merge', () => {
+  test('skills never tell the model to approve, and merge only through a person\'s sign-off', () => {
     const next = skill('next');
     assert.match(next, /You can't approve anything/);
-    assert.match(next, /You don't run the merge/);
-    assert.match(skill('ship'), /Never merge it yourself/);
+    assert.match(next, /merges only when a person signed off the merge/);
+    assert.match(next, /`sdlc merge` is the only route open to you/);
+    assert.match(skill('ship'), /Their sign-off is the merge/);
   });
 });
 

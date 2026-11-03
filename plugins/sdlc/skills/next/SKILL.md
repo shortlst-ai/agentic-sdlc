@@ -16,7 +16,7 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 | `approve` | Stop. Show what the person needs to decide, as below, and ask them to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. You can't approve anything |
 | `advance` | Run `sdlc advance`, except at `build` as noted below, then run this skill again |
 | `launch` | Stop. Both documents are approved. Tell the person they can type `/sdlc:launch <name of this item>`. Don't advance it: it can't be built on the default branch |
-| `none` | Run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item, and never merge it yourself. With no remote, see below |
+| `none` | Run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item. Then merge, as below |
 
 | Stage | Skill |
 | --- | --- |
@@ -34,13 +34,15 @@ At an approval, show the least the person needs:
 
 At `build`, `next.action` is always `advance`, because the stage has no file to wait for. Use `/sdlc:build` first, and advance only once the work is done.
 
-With no remote, nothing has reached the base branch yet. Run `sdlc gates --base <item's base>` and show the result. If it passes, give the person the merge to run themselves, with the real path and branch:
+To merge, run `sdlc merge`, on its own, with a timeout of 10 minutes, because it waits for the pull request's checks. It merges only when a person signed off the merge with `/sdlc:approve`, which they did to decide it, and only once the gates pass. Report what it printed.
+
+If it says nobody signed off a merge, the review passed and the person merges it. With a remote, give them the pull request. With no remote, run `sdlc gates --base <item's base>`, show the result, and if it passes, give them the merge to run, with the real path and branch:
 
 ```bash
 git -C <main checkout> merge --no-ff <item's branch>
 ```
 
-Tell them to merge before ending this session and removing the worktree, because removing it deletes the branch and its commits. You don't run the merge: it's theirs, as a pull request's would be.
+Tell them to merge before removing the worktree, because removing it deletes the branch and its commits. Never merge any other way: `sdlc merge` is the only route open to you.
 
 `sdlc advance` commits the item's records itself, so a resumed session can pick up from Git. Commit the code and reports you write between steps. On the default branch, commit nothing: a draft stays uncommitted until `/sdlc:launch` moves it.
 

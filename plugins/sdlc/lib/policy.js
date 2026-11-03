@@ -248,13 +248,12 @@ function checkGit(tokens, facts) {
   return ALLOW;
 }
 
+// `sdlc merge` is the only way in for an agent, and it needs a person's sign-off.
+const NO_MERGE = 'agents can\'t merge pull requests themselves: sdlc merge does, once a person has signed off';
+
 function checkGh(tokens) {
-  if (tokens[1] === 'pr' && tokens[2] === 'merge') {
-    return deny('agents can\'t merge pull requests, so ask a person to');
-  }
-  if (tokens[1] === 'api' && tokens.some((token) => /pulls\/\d+\/merge/.test(token))) {
-    return deny('agents can\'t merge pull requests, so ask a person to');
-  }
+  if (tokens[1] === 'pr' && tokens[2] === 'merge') return deny(NO_MERGE);
+  if (tokens[1] === 'api' && tokens.some((token) => /pulls\/\d+\/merge/.test(token))) return deny(NO_MERGE);
   return ALLOW;
 }
 

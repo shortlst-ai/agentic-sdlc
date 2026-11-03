@@ -119,6 +119,8 @@ Approve in your main session as usual, and the build that was waiting starts aga
 
 When the review passes, the build opens a pull request. Read it, check that `gates` is green, and merge it yourself. If your repo has no remote, it gives you a `git merge` command instead.
 
+If the review wasn't a plain pass, or the change touches a critical path, you're asked to approve the merge instead. That approval is the merge: the build opens the pull request and merges it once its checks pass, or with no remote, merges the branch into your default branch. You don't merge it again.
+
 Then remove the worktree and branch:
 
 ```text

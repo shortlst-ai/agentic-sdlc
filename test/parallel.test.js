@@ -119,8 +119,9 @@ function advance(c, cwd) {
   assert.equal(result.status, 0, result.stderr);
 }
 
-// A launched change taken right to the end, with every step really done.
-function finished(c, slug = 'csv', id = ID) {
+// A launched change taken right to the end, with every step really done. A review
+// that didn't plainly pass gets a person's sign-off on the merge.
+function finished(c, slug = 'csv', id = ID, review = 'Verdict: pass\n') {
   const dir = launched(c, slug, id);
   touch(dir, `src/${slug}.py`);
   touch(dir, itemFile('', 'evidence/reviews/S1.md', id), 'Verdict: pass\n');
@@ -128,8 +129,9 @@ function finished(c, slug = 'csv', id = ID) {
   commitAll(c, dir);
   assert.equal(c.sdlc(dir, 'verify').status, 0);
   advance(c, dir);
-  touch(dir, itemFile('', 'evidence/review.md', id), 'Verdict: pass\n');
+  touch(dir, itemFile('', 'evidence/review.md', id), review);
   advance(c, dir);
+  if (!/Verdict: pass/.test(review)) c.human(dir, 'approve', slug);
   advance(c, dir);
   commitAll(c, dir);
   assert.equal(state(dir, id).stage, 'done');
@@ -689,4 +691,77 @@ test('a build\'s own session doesn\'t watch the others', async (t) => {
   launched(c, 'other', '0002-other');
   const watcher = watch(c, dir);
   assert.equal((await outcome(watcher, 400)).code, 0);
+});
+
+// Stands in for gh, with a pull request that's open and checks that pass unless told not to.
+const FAKE_GH = `#!/bin/sh
+echo "$@" >> "$FAKE_DIR/gh-calls"
+case "$1 $2" in
+  'pr view') echo '{"number":7,"state":"OPEN"}' ;;
+  'pr checks') [ -f "$FAKE_DIR/checks-fail" ] && { echo 'gates	fail'; exit 1; }; echo 'gates	pass' ;;
+esac
+exit 0
+`;
+
+const UNCLEAR = 'Some aliases are unverified, so a person should decide.\n';
+
+function withRemote(t, c) {
+  const remote = tempDir(t, 'sdlc-remote-');
+  c.git(remote, 'init', '-q', '--bare', '-b', 'main');
+  c.git(c.root, 'remote', 'add', 'origin', remote);
+  c.git(c.root, 'push', '-q', '-u', 'origin', 'main');
+  fs.writeFileSync(path.join(c.fake, 'gh'), FAKE_GH, { mode: 0o755 });
+}
+
+function ghCalls(c) {
+  const file = path.join(c.fake, 'gh-calls');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+test('a signed-off merge goes into the default branch with no remote', (t) => {
+  const c = repo(t);
+  const dir = finished(c, 'csv', ID, UNCLEAR);
+  const result = c.sdlc(dir, 'merge');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Merged worktree-csv into main/);
+  assert.ok(fs.existsSync(path.join(c.root, 'src/csv.py')));
+  assert.match(c.gitOut(c.root, 'log', '-1', '--format=%s'), /^Merge worktree-csv: 0001-csv/);
+});
+
+test('a signed-off merge waits for the pull request\'s checks, then merges it', (t) => {
+  const c = repo(t);
+  withRemote(t, c);
+  const dir = finished(c, 'csv', ID, UNCLEAR);
+  const result = c.sdlc(dir, 'merge');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Merged pull request #7/);
+  assert.match(ghCalls(c), /pr checks 7 --watch[\s\S]*pr merge 7 --merge/);
+  assert.ok(c.gitOut(c.root, 'ls-remote', 'origin', 'worktree-csv'), 'the branch was pushed');
+});
+
+test('a pull request whose checks fail stays open', (t) => {
+  const c = repo(t);
+  withRemote(t, c);
+  const dir = finished(c, 'csv', ID, UNCLEAR);
+  fs.writeFileSync(path.join(c.fake, 'checks-fail'), '');
+  const refused = c.sdlc(dir, 'merge');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /checks didn't pass, so it stays open/);
+  assert.doesNotMatch(ghCalls(c), /pr merge/);
+});
+
+test('nothing merges without a person\'s sign-off on the review as it is', (t) => {
+  const c = repo(t);
+  const clean = finished(c);
+  assert.match(c.sdlc(clean, 'merge').stderr, /review passed, so nobody signed off a merge: a person merges it/);
+
+  const other = finished(c, 'other', '0002-other', UNCLEAR);
+  fs.appendFileSync(itemFile(other, 'evidence/review.md', '0002-other'), 'And one more thing.\n');
+  commitAll(c, other);
+  assert.match(c.sdlc(other, 'merge').stderr, /merge sign-off is missing or out of date/);
+
+  const before = c.gitOut(c.root, 'rev-parse', 'HEAD');
+  const third = launched(c, 'third', '0003-third');
+  assert.match(c.sdlc(third, 'merge', 'third').stderr, /at build, not finished/);
+  assert.equal(c.gitOut(c.root, 'rev-parse', 'HEAD'), before);
 });

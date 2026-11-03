@@ -20,7 +20,7 @@
 | Losing the thread when a session ends | Specs, approvals, and evidence are committed to Git, so any session can pick up |
 | Waiting while one change finishes | Several changes build at once in the background, while you stay in one session |
 
-You stay in charge throughout: only you can approve, and only you merge.
+You stay in charge throughout: only you can approve, and nothing merges without you, either by your hand or by your sign-off.
 
 ## Quick start
 
@@ -75,7 +75,7 @@ flowchart TD
     final -->|Critical findings| build
     final -->|Plain pass| done([You merge the pull request])
     final -->|Unclear review, or a critical path| gateMerge{{You approve the merge}}
-    gateMerge --> done
+    gateMerge --> merged([It merges once checks pass])
     build -.->|Hole in the spec| gateSpec
 
     classDef you fill:#fde68a,stroke:#b45309,color:#1f2937
@@ -138,7 +138,7 @@ On a real project, an 80-line fix used to come with a 2,200-word spec. In tests,
 | `/sdlc:learn` | Turns mistakes that repeat across changes into suggested rules |
 | `/sdlc:diagnose <id>` | Adds a likely cause to a CI breach |
 
-The model can't run `approve` or `abandon`. They work only when a person types them.
+You can ask for any of the others in plain words, such as "start a change to add CSV export" or "what's waiting on me?". The model can't run `approve` or `abandon`. They work only when a person types them.
 
 ## Who it's for
 

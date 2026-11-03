@@ -2,7 +2,7 @@
 
 # sdlc
 
-A software factory for Claude Code. You describe a change and approve two short documents: what's wrong, and exactly what will change. Agents then build it a slice at a time, test it, and review it, and you merge the pull request. Specs, approvals, and evidence are committed to Git, and code decides each step rather than the model. Only a person can approve or merge.
+A software factory for Claude Code. You describe a change and approve two short documents: what's wrong, and exactly what will change. Agents then build it a slice at a time, test it, and review it, and you merge the pull request. Specs, approvals, and evidence are committed to Git, and code decides each step rather than the model. Only a person can approve, and nothing merges without one.
 
 Full guide, tutorial, and limits: [github.com/shortlst-ai/agentic-sdlc](https://github.com/shortlst-ai/agentic-sdlc).
 
@@ -23,7 +23,7 @@ Everything happens on your machine, in your repository, unless a step below says
 
 **In your repository**
 
-- `/sdlc:init` writes `.sdlc/config.json`, adds `.claude/worktrees/` to `.gitignore`, and edits `.claude/settings.json`. That edit allows `Bash(sdlc *)`, so agents can run the factory's own command without asking, and sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. The `sdlc` command can't approve or abandon anything, which is why allowing it is safe
+- `/sdlc:init` writes `.sdlc/config.json`, adds `.claude/worktrees/` to `.gitignore`, and edits `.claude/settings.json`. That edit allows `Bash(sdlc *)`, so agents can run the factory's own command without asking, and sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. The `sdlc` command can't approve or abandon anything, and `sdlc merge` merges only a change a person signed off, which is why allowing it is safe
 - Each change gets a folder under `.sdlc/work/`. `sdlc` commits that folder as a change moves through its steps, on the change's own branch and never on your default branch
 - `/sdlc:launch` creates a Git worktree under `.claude/worktrees/` and a branch for the change
 - `/sdlc:sync` merges your default branch into a change, and pushes the branch if it already has an upstream

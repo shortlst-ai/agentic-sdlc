@@ -5,4 +5,4 @@ allowed-tools: Bash(sdlc status *), Bash(sdlc status)
 
 Run `sdlc status` and report its output as written. Don't add your own view of what should happen next.
 
-If the person asks why a build is stuck or what it's doing, read its state in the worktree `sdlc status` names. If it's waiting on a permission prompt, only they can answer that, with `claude attach sdlc-<name>`.
+Each change in a worktree is worked on in that worktree's own window, which `sdlc status` names. If the person asks what one is doing, read its state there, and tell them its window has the session.

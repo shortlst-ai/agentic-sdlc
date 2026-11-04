@@ -9,11 +9,13 @@ This is new software, so here's what has and hasn't been tested.
 - Forged approvals and a gutted gate were both blocked on GitHub
 - `/sdlc:approve` works from the terminal and the VS Code panel
 - Installing from GitHub works
-- Two builds ran side by side in the background on a throwaway repo. The second hit real conflicts with the first, synced, and resolved them unattended
+- Two builds ran side by side on a throwaway repo. The second hit real conflicts with the first, synced, and resolved them unattended
+- A subagent with `isolation: worktree` starts from the change's branch once `worktree.baseRef` is `head`, and the factory's hooks see its worktree, so a slice builder there gets the same checks
 
 **Not proven yet**
 
-- **Parallel builds haven't run on real work.** The main session's parts were run as scripts, so nobody has yet typed `/sdlc:launch` in a live session or the VS Code panel, or been woken there by a finished build. Only auto mode has been tried
+- **A change in its own window hasn't run on real work.** Starting a change from the main session, its window opening, and slices merging back are tested, but nobody has yet taken a real change through it
+- **Slices built at the same time haven't run on real work.** An eval checks the lead spawns them together, but merging them back and reviewing them has only been tested with scripted builders
 - **The speedups haven't been timed on a real change.** The full suite now runs once per change, small fixes default to one slice, and builds run on Sonnet. Each part is tested, and the one-slice rule is checked by an eval, but the time saved is an estimate
 - **Shorter specs are only tested in evals.** A typo fix gets about 120 words with no diagram, and a change across three files gets a diagram. A real change hasn't been through it, and the length limits are a first guess
 - **`sync` hasn't met a real remote.** Pushing and pull request updates are tested against a local bare repo
@@ -26,4 +28,4 @@ This is new software, so here's what has and hasn't been tested.
 - **Forged approvals can pass on a solo repo.** An approval with the right hash and a made-up name passes `sdlc gates`, so on a team, pull request review is the real sign-off
 - **The diagnoser isn't fully resistant to instructions planted in CI logs.** It ignored them in 12 of 14 test runs. In the other two it ran `sdlc advance`, which the gate would refuse, and the cause is unexplained
 
-Agent teams are experimental in Claude Code and need a terminal session. In the VS Code panel, the same roles run as plain subagents, and so do builds started by `/sdlc:launch`.
+Agent teams are experimental in Claude Code and need a terminal session. In the VS Code panel, the same roles run as plain subagents, and slices built at the same time are always plain subagents, because giving a builder a worktree of its own makes it a plain subagent.

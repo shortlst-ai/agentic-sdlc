@@ -135,9 +135,6 @@ function nextAction(item, facts) {
     }
   }
 
-  // A draft on the default branch has nowhere to build, so a worktree comes first.
-  if (facts.draft && item.stage === 'spec') return { action: 'launch', to: 'build' };
-
   const following = flow[current + 1];
   return { action: 'advance', to: following ? following.stage : DONE };
 }
@@ -152,8 +149,6 @@ function describeNext(next) {
         : `a person must type /sdlc:approve for ${next.stage}`;
     case 'advance':
       return `advance to ${next.to}`;
-    case 'launch':
-      return 'a person can type /sdlc:launch to build it in its own worktree';
     default:
       return 'nothing, this item is done';
   }

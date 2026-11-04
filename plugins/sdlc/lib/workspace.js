@@ -168,7 +168,9 @@ function ignoreWorktrees(root) {
 }
 
 // A plugin can't ship settings, so the project has to turn agent teams on itself.
-// Allowing the CLI is safe because it can't approve or abandon anything.
+// Allowing the CLI is safe because it can't approve or abandon anything. A slice
+// built in a worktree of its own needs that worktree to start from the change's
+// branch, which `worktree.baseRef` decides.
 function writeProjectSettings(root) {
   const dir = path.join(root, '.claude');
   const file = path.join(dir, 'settings.json');
@@ -178,6 +180,7 @@ function writeProjectSettings(root) {
   writeJson(file, {
     ...settings,
     env: { ...settings.env, [AGENT_TEAMS_FLAG]: '1' },
+    worktree: { ...settings.worktree, baseRef: 'head' },
     permissions: { ...settings.permissions, allow: [...new Set([...allow, CLI_PERMISSION])] },
   });
 }
@@ -280,11 +283,31 @@ function resolveId(root, query) {
 
 // A work item belongs to the branch it was created on, so each worktree session
 // sees only its own work. An item with no branch was made outside git.
-function ownItems(root) {
+function branchItems(root) {
   const branch = currentBranch(root);
   return listIds(root)
     .map((id) => loadItem(root, id))
     .filter((item) => !item.branch || item.branch === branch);
+}
+
+// Whether this checkout's branch split off `branch` after it left the default
+// branch, which is how a slice's worktree starts.
+function forkedFrom(root, branch, main) {
+  if (!branch || branch === main) return false;
+  const fork = git(root, ['merge-base', 'HEAD', branch]);
+  return fork !== null && (!main || git(root, ['merge-base', '--is-ancestor', fork, main]) === null);
+}
+
+// A slice built alongside others has a worktree and branch of its own, started from
+// the change's branch, so the change it holds is still its own.
+function ownItems(root) {
+  const own = branchItems(root);
+  const branch = currentBranch(root);
+  const main = defaultBranch(root);
+  if (own.length > 0 || branch === null || branch === main) return own;
+  return listIds(root)
+    .map((id) => loadItem(root, id))
+    .filter((item) => isOpen(item) && forkedFrom(root, item.branch, main));
 }
 
 function checkouts(root) {
@@ -297,10 +320,10 @@ function checkouts(root) {
 
 // Every item in every checkout of this repo, finished or not, so a person can act
 // on any of them from one place. A worktree with no factory, or one that's gone,
-// has none.
+// has none, and a slice's worktree doesn't count the change a second time.
 function itemsEverywhere(root) {
   return checkouts(root).flatMap((dir) =>
-    ownItems(dir)
+    branchItems(dir)
       .filter((item) => item.stage !== ABANDONED)
       .map((item) => ({ root: dir, item })),
   );
@@ -310,8 +333,8 @@ function openEverywhere(root) {
   return itemsEverywhere(root).filter(({ item }) => isOpen(item));
 }
 
-// What's running in worktrees, which is all a main session has to look after.
-function launchedItems(root) {
+// The changes in worktrees, which is all a main session has to look after.
+function worktreeItems(root) {
   return itemsEverywhere(root).filter(({ root: dir }) => isLinkedWorktree(dir));
 }
 
@@ -348,10 +371,14 @@ function activeItem(root, query) {
   throw new SdlcError(`several open work items, so name one: ${open.map((i) => i.id).join(', ')}`);
 }
 
-function createItem(root, slug, track, stage, files = []) {
+function assertSlug(slug) {
   if (!SLUG.test(slug)) {
     throw new SdlcError(`invalid slug '${slug}': use lowercase letters, digits, and hyphens`, 2);
   }
+}
+
+function createItem(root, slug, track, stage, files = []) {
+  assertSlug(slug);
   // Counts every checkout, so two changes in flight don't share a number.
   const ids = [root, ...checkouts(root)].flatMap(listIds);
   const highest = Math.max(0, ...ids.map((id) => Number(id.split('-')[0]) || 0));
@@ -421,7 +448,7 @@ function writeArtifact(root, item, artifact, text) {
 }
 
 // Commits only the item's own folder, so a step's records don't wait on the lead
-// for a commit. A draft on the default branch stays uncommitted until it's launched.
+// for a commit. Nothing is committed to the default branch, which never holds a change.
 function commitRecords(root, item, message) {
   if (item.branch === defaultBranch(root)) return false;
   const folder = path.join(SDLC_DIR, 'work', item.id);
@@ -514,8 +541,7 @@ function readFacts(root, item) {
   }
   const review = path.join(dir, ARTIFACTS.review);
   const verdict = fs.existsSync(review) ? reviewVerdict(fs.readFileSync(review, 'utf8')) : null;
-  const draft = Boolean(item.branch) && item.branch === defaultBranch(root);
-  return { artifacts, approvals, verdict, draft };
+  return { artifacts, approvals, verdict };
 }
 
 // An unreadable approval counts as no approval, so the gate stays shut.
@@ -533,15 +559,18 @@ module.exports = {
   UNREACHABLE_WARNING,
   activeItem,
   approvedCopy,
+  assertSlug,
   archiveEvidence,
   artifactPath,
   bandsOf,
   changedFiles,
   changedLines,
+  checkouts,
   codeFingerprint,
   commitRecords,
   countStopBlock,
   createItem,
+  currentBranch,
   defaultBranch,
   elsewhere,
   findItem,
@@ -550,7 +579,6 @@ module.exports = {
   headCommit,
   init,
   isLinkedWorktree,
-  launchedItems,
   listIds,
   removeEvidence,
   writeEvidence,
@@ -571,5 +599,6 @@ module.exports = {
   setupPending,
   unreachableFactory,
   waitMarker,
+  worktreeItems,
   writeArtifact,
 };

@@ -1,37 +1,27 @@
 'use strict';
 
-// Running several changes from one main session. A draft is discussed and approved
-// on the default branch, then moved to its own worktree, where a background Claude
-// session builds it. The main session stays where it is and looks after them all.
+// Running several changes at once. Each change gets its own worktree and branch the
+// moment it starts, and a person works on it in a window of its own, from intent to
+// merge. The main session stays on the default branch. Inside a change, slices that
+// don't depend on each other can build at once, each in a worktree of its own.
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { reviewPassed, sliceList } = require('./check');
 const machine = require('./machine');
 const workspace = require('./workspace');
 
-const { ARTIFACTS, isOpen } = machine;
+const { ARTIFACTS } = machine;
 const { SdlcError, git } = workspace;
 
-const START_PROMPT = '/sdlc:next';
-
-// A finished teammate stays listed as running, which keeps the stop hook from
-// sending a stalled lead back. Nobody is watching a build, so plain subagents do
-// the same work and leave nothing behind.
-const BUILD_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0' } });
-const CLAUDE_TIMEOUT_MS = 60000;
 const SETTINGS = path.join('.claude', 'settings.json');
+const EDITOR_TIMEOUT_MS = 30000;
 
-
-function slugOf(item) {
-  return item.id.replace(/^\d+-/, '');
-}
-
-function sessionName(item) {
-  return `sdlc-${slugOf(item)}`;
-}
+// Where VS Code keeps its command-line tool on macOS, which isn't always on the PATH.
+const MAC_CODE = '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code';
 
 function realPath(dir) {
   try {
@@ -43,72 +33,6 @@ function realPath(dir) {
 
 function sameDir(one, other) {
   return realPath(one) === realPath(other);
-}
-
-// The session's own variables would make the new one a child of it.
-function claudeEnv() {
-  const keep = ([key]) => !key.startsWith('CLAUDE') || key === 'CLAUDE_CONFIG_DIR';
-  return Object.fromEntries(Object.entries(process.env).filter(keep));
-}
-
-function claude(cwd, args) {
-  return spawnSync('claude', args, { cwd, env: claudeEnv(), encoding: 'utf8', timeout: CLAUDE_TIMEOUT_MS });
-}
-
-// Null when Claude Code can't say, which is different from having no sessions.
-function backgroundSessions() {
-  const result = claude(process.cwd(), ['agents', '--json']);
-  if (result.status !== 0) return null;
-  try {
-    return JSON.parse(result.stdout).filter((session) => session.kind === 'background');
-  } catch {
-    return null;
-  }
-}
-
-function sessionsAt(sessions, dir) {
-  return (sessions ?? []).filter((session) => sameDir(session.cwd, dir)).sort((a, b) => b.startedAt - a.startedAt);
-}
-
-function sessionState(session) {
-  if (!session) return 'stopped';
-  if (session.state === 'blocked') return 'blocked';
-  // `state` is how the last turn ended, and can stay at `working` on an idle session.
-  return session.status === 'idle' ? 'idle' : 'running';
-}
-
-function describeSession(sessions, dir) {
-  if (sessions === null) return null;
-  const [session] = sessionsAt(sessions, dir);
-  const state = sessionState(session);
-  return state === 'blocked' ? 'waiting on you' : state;
-}
-
-function stopSessions(dir) {
-  for (const session of sessionsAt(backgroundSessions(), dir)) claude(dir, ['stop', session.id]);
-}
-
-// The state is all in Git, so a fresh session picks up where the last one stopped.
-// Resuming a session that's idle would only start a copy of it.
-//
-// Its output goes to a file because the first `--bg` also starts Claude Code's
-// background service, which would hold a pipe open and hang this until it timed out.
-function startSession(dir, item) {
-  const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-launch-')), 'output');
-  const output = fs.openSync(log, 'w');
-  const model = workspace.loadConfig(dir).build_model ?? 'sonnet';
-  const args = ['--bg', '--settings', BUILD_SETTINGS, '--model', model, '-n', sessionName(item), START_PROMPT];
-  const options = { cwd: dir, env: claudeEnv(), stdio: ['ignore', output, output], timeout: CLAUDE_TIMEOUT_MS };
-  const result = spawnSync('claude', args, options);
-  fs.closeSync(output);
-  const detail = result.error?.message ?? fs.readFileSync(log, 'utf8').trim();
-  fs.rmSync(path.dirname(log), { recursive: true });
-  if (result.status !== 0) throw new SdlcError(`${item.id} is ready in ${dir}, but its session didn't start: ${detail}`);
-}
-
-function restart(dir, item) {
-  stopSessions(dir);
-  startSession(dir, item);
 }
 
 function isAncestor(root, ancestor, commit) {
@@ -137,61 +61,119 @@ function withEvent(item, event) {
   return { ...item, history: [...item.history, { at: new Date().toISOString(), ...event }] };
 }
 
-// Moves the draft rather than copying it, so it can't also get built a second time.
-// Nothing leaves the main checkout until the worktree holds it in a commit.
-function promote(root, { item }) {
-  const facts = workspace.readFacts(root, item);
-  const next = machine.nextAction(item, facts);
-  if (next.action !== 'launch') throw new SdlcError(`can't launch ${item.id}: ${machine.describeNext(next)}`);
-  if (git(root, ['ls-files', '--', path.join('.sdlc', 'work', item.id)])) {
-    throw new SdlcError(`${item.id} is committed on ${item.branch}, so it can't be moved to a worktree`);
-  }
+// Whether `sdlc new` here should give the change a worktree of its own.
+function startsWorktree(root) {
+  const branch = workspace.currentBranch(root);
+  return !workspace.isLinkedWorktree(root) && branch !== null && branch === workspace.defaultBranch(root);
+}
+
+// The default branch never holds a change, so the main session stays free and two
+// changes can't trip over each other's drafts. What the person asked for goes with
+// it, because the session in its window can't see this conversation.
+function start(root, { slug, track, files, request }) {
+  workspace.assertSlug(slug);
   // The worktree starts from the last commit. Without the plugin enabled there, its
-  // session can't even run the start prompt, and builds with no hooks.
+  // session can't run the factory's commands, and builds with no hooks.
   if (git(root, ['status', '--porcelain', '--', SETTINGS])) {
-    throw new SdlcError(`commit ${SETTINGS} first: ${item.id}'s worktree starts from the last commit, so its build wouldn't get your changes`);
+    throw new SdlcError(`commit ${SETTINGS} first: the new worktree starts from the last commit, so it wouldn't get your changes`);
   }
-  const branch = `worktree-${slugOf(item)}`;
-  const dir = path.join(root, '.claude', 'worktrees', slugOf(item));
-  const base = latestCommit(root, item.branch);
+  const branch = `worktree-${slug}`;
+  const dir = path.join(root, '.claude', 'worktrees', slug);
+  const base = latestCommit(root, workspace.currentBranch(root));
   if (git(root, ['worktree', 'add', '-q', '-b', branch, dir, base]) === null) {
     throw new SdlcError(`can't create the worktree ${dir} on branch ${branch}: is one there already?`);
   }
-  fs.cpSync(itemDir(root, item), itemDir(dir, item), { recursive: true });
-  const { item: building } = machine.advance(item, { ...facts, draft: false });
-  const event = { from: item.stage, to: building.stage, launched: branch };
-  workspace.saveItem(dir, withEvent({ ...building, branch, base }, event));
-  if (commitItem(dir, item, `Start ${item.id}`) === null) {
+  try {
+    const item = workspace.createItem(dir, slug, track, machine.firstStage(track), files);
+    if (request) workspace.writeArtifact(dir, item, 'request.md', `${request.trim()}\n`);
+    if (commitItem(dir, item, `Start ${item.id}`) === null) throw new SdlcError(`can't commit ${item.id} in its worktree`);
+    return { dir, item };
+  } catch (error) {
     git(root, ['worktree', 'remove', '--force', dir]);
     git(root, ['branch', '-q', '-D', branch]);
-    throw new SdlcError(`can't commit ${item.id} in its worktree, so it stays here`);
+    throw error;
   }
-  fs.rmSync(itemDir(root, item), { recursive: true });
-  startSession(dir, item);
-  return dir;
 }
 
-// A blocked session isn't doing anything, and is often just one that ended its turn
-// with a message. Its state is in Git, so it's restarted like a stopped one.
-function refuseIfRunning({ root: dir, item }) {
-  const [session] = sessionsAt(backgroundSessions(), dir);
-  if (sessionState(session) === 'running') throw new SdlcError(`${item.id} is still running`);
+function insideVsCode() {
+  return Boolean(process.env.VSCODE_PID) || process.env.TERM_PROGRAM === 'vscode';
 }
 
-function resume(found) {
-  const { root: dir, item } = found;
-  if (!isOpen(item)) throw new SdlcError(`${item.id} is ${item.stage}, so there's nothing to build`);
-  refuseIfRunning(found);
-  const next = machine.nextAction(item, workspace.readFacts(dir, item));
-  if (next.action === 'approve') throw new SdlcError(`can't launch ${item.id}: ${machine.describeNext(next)}`);
-  restart(dir, item);
-  return dir;
+// A new VS Code window on the worktree, when this runs inside VS Code. Anywhere else,
+// or if VS Code can't be found, the person opens it themselves.
+function openWindow(dir) {
+  if (!insideVsCode()) return false;
+  for (const command of ['code', ...(process.platform === 'darwin' ? [MAC_CODE] : [])]) {
+    const result = spawnSync(command, ['--new-window', dir], { stdio: 'ignore', timeout: EDITOR_TIMEOUT_MS });
+    if (result.status === 0) return true;
+    if (result.error?.code !== 'ENOENT') return false;
+  }
+  return false;
 }
 
-// The one command for both a new build and one that has stopped.
-function launch(root, query) {
-  const found = workspace.findItem(root, query);
-  return workspace.isLinkedWorktree(found.root) ? resume(found) : promote(root, found);
+function readSettings(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// A subagent's worktree branches from the remote's default branch unless this is
+// set, and a builder there wouldn't see the spec it's meant to build. The most
+// specific setting wins, as it does in Claude Code.
+function parallelSlices(root) {
+  const home = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude');
+  const files = [path.join(root, '.claude', 'settings.local.json'), path.join(root, SETTINGS), path.join(home, 'settings.json')];
+  for (const file of files) {
+    const baseRef = readSettings(file)?.worktree?.baseRef;
+    if (baseRef) return baseRef === 'head';
+  }
+  return false;
+}
+
+// Each slice, whether it has passed its review, and whether it can be built now:
+// a slice waits for the ones its heading says it comes after.
+function slices(root, item) {
+  const listed = sliceList(workspace.readArtifact(root, item, ARTIFACTS.spec));
+  const passed = new Set(listed.filter(({ id }) => reviewPassed(root, item, id)).map(({ id }) => id));
+  const described = listed.map((slice) => {
+    const waiting = slice.after.filter((id) => !passed.has(id));
+    const state = passed.has(slice.id) ? 'passed' : waiting.length > 0 ? 'waiting' : 'ready';
+    return { ...slice, state, ...(state === 'waiting' && { waiting }) };
+  });
+  return { slices: described, parallel: parallelSlices(root) };
+}
+
+function currentItem(root) {
+  const own = workspace.ownItems(root).filter((item) => item.stage !== machine.ABANDONED);
+  if (own.length === 0) throw new SdlcError('no work item on this branch');
+  return { root, item: own.at(-1) };
+}
+
+// A slice built at the same time as others comes back as a branch in a worktree of
+// its own. Merging it and removing that worktree is one step, so nothing is left
+// lying around, and a conflict leaves both sides as they were.
+function mergeSlice(root, worktree) {
+  const { item } = currentItem(root);
+  if (item.stage !== 'build') throw new SdlcError(`${item.id} is at ${item.stage}, not build`);
+  const dir = path.resolve(root, worktree);
+  if (sameDir(dir, root) || !workspace.checkouts(root).some((checkout) => sameDir(checkout, dir))) {
+    throw new SdlcError(`${worktree} isn't another worktree of this repo`);
+  }
+  const theirs = fs.existsSync(path.join(itemDir(dir, item), 'state.json')) && workspace.loadItem(dir, item.id);
+  if (!theirs || theirs.branch !== item.branch) throw new SdlcError(`${worktree} wasn't started from ${item.id}`);
+  const branch = workspace.currentBranch(dir);
+  if (git(dir, ['status', '--porcelain'])) throw new SdlcError(`${worktree} has uncommitted changes, so commit them there first`);
+  if (git(root, ['status', '--porcelain'])) throw new SdlcError(`${item.id} has uncommitted changes, so commit them first`);
+  if (isAncestor(root, branch, 'HEAD')) throw new SdlcError(`${branch} has nothing this change doesn't have already`);
+  if (git(root, ['merge', '-q', '--no-ff', '-m', `Merge ${branch} into ${item.id}`, branch]) === null) {
+    git(root, ['merge', '--abort']);
+    throw new SdlcError(`${branch} conflicts with ${item.id}, so nothing changed: build that slice again here, once the others are in`);
+  }
+  git(root, ['worktree', 'remove', '--force', dir]);
+  git(root, ['branch', '-q', '-D', branch]);
+  return `Merged ${branch} into ${item.id} and removed its worktree.`;
 }
 
 // Runs the project's own tests and has the tool write the evidence, so the result
@@ -209,12 +191,6 @@ function runVerify(root, item) {
   return { passed, command, output };
 }
 
-function currentItem(root) {
-  const own = workspace.ownItems(root).filter((item) => item.stage !== machine.ABANDONED);
-  if (own.length === 0) throw new SdlcError('no work item on this branch');
-  return { root, item: own.at(-1) };
-}
-
 function setAside(dir, item, label) {
   workspace.archiveEvidence(dir, item.id, `sync-${label}`, workspace.SYNC_EVIDENCE);
   return withEvent(machine.reopen(item), { from: item.stage, to: machine.reopen(item).stage, reason: 'sync' });
@@ -227,7 +203,7 @@ function setAside(dir, item, label) {
 function update({ root: dir, item }) {
   const branch = workspace.defaultBranch(dir);
   if (!branch) throw new SdlcError("can't tell which branch is the default");
-  if (item.branch === branch) throw new SdlcError(`${item.id} is still a draft on ${branch}, so nothing needs syncing`);
+  if (item.branch === branch) throw new SdlcError(`${item.id} is on ${branch} itself, so nothing needs syncing`);
   if (git(dir, ['status', '--porcelain'])) throw new SdlcError(`${item.id} has uncommitted changes, so commit them first`);
   const target = latestCommit(dir, branch);
   const head = workspace.headCommit(dir);
@@ -266,20 +242,16 @@ function reportSync(item, { outcome, branch, conflicts }) {
   return messages[outcome];
 }
 
-// From inside the worktree the session is the one asking. From anywhere else, a
-// running session owns its files, and a stopped one needs starting afterwards.
+// Only from the change's own worktree, because the session in its window owns its
+// files, and merging under it would change them while it works.
 function sync(root, query) {
-  if (!query && !workspace.isLinkedWorktree(root)) throw new SdlcError('name the change to sync');
   const found = query ? workspace.findItem(root, query) : currentItem(root);
-  const outside = !sameDir(root, found.root);
-  if (outside) refuseIfRunning(found);
+  if (!sameDir(root, found.root)) {
+    throw new SdlcError(`run /sdlc:sync in ${found.item.id}'s own window, at ${found.root}`);
+  }
   const result = update(found);
   const after = workspace.loadItem(found.root, found.item.id);
-  const restarted = outside && result.outcome !== 'current' && isOpen(after);
-  if (restarted) restart(found.root, after);
-  // Said outright, or the main session assumes the old build is still going and relaunches it.
-  const started = restarted ? ' Its build has started again on the new code, so it needs no launch.' : '';
-  return { ...result, message: `${reportSync(after, result)}${started}` };
+  return { ...result, message: reportSync(after, result) };
 }
 
 function isMerged({ root: dir, item }) {
@@ -288,21 +260,16 @@ function isMerged({ root: dir, item }) {
   return isAncestor(dir, workspace.headCommit(dir), latestCommit(dir, branch)) && item.base !== workspace.headCommit(dir);
 }
 
-function removeWorktree(root, found) {
-  const { root: dir, item } = found;
-  stopSessions(dir);
-  const sessions = sessionsAt(backgroundSessions(), dir);
+function removeWorktree(root, { root: dir, item }) {
   if (git(root, ['worktree', 'remove', dir]) === null) {
     throw new SdlcError(`can't remove ${dir}, so check what's left in it`);
   }
   git(root, ['branch', '-q', '-D', item.branch]);
-  // `rm` also deletes a session's worktree, so it only runs once that's already gone.
-  for (const session of sessions) claude(root, ['rm', session.id]);
   return item.id;
 }
 
 function cleanup(root, query) {
-  const merged = query ? [workspace.findItem(root, query)] : workspace.launchedItems(root).filter(isMerged);
+  const merged = query ? [workspace.findItem(root, query)] : workspace.worktreeItems(root).filter(isMerged);
   for (const found of merged) {
     if (sameDir(found.root, root)) throw new SdlcError(`run this from the main session, not from ${found.item.id}'s worktree`);
     if (!workspace.isLinkedWorktree(found.root)) throw new SdlcError(`${found.item.id} has no worktree`);
@@ -311,44 +278,13 @@ function cleanup(root, query) {
   return merged.map((found) => removeWorktree(root, found));
 }
 
-// A person just approved something a background build was waiting on. Nothing else
-// can wake that session, because it's not attended and it stopped at the gate.
-function continueAfterApproval(root, item) {
-  if (!workspace.isLinkedWorktree(root)) return null;
-  if (sessionsAt(backgroundSessions(), root).length === 0) return null;
-  try {
-    restart(root, item);
-    return `The build of ${item.id} is running again.`;
-  } catch (error) {
-    if (!(error instanceof SdlcError)) throw error;
-    return `The build of ${item.id} didn't restart, so use /sdlc:launch: ${error.message}`;
-  }
-}
-
-// What a main session should hear about one build, or null if it needs nothing.
-function attention({ root: dir, item }, sessions) {
-  const next = machine.nextAction(item, workspace.readFacts(dir, item));
-  if (next.action === 'approve') return `${item.id} needs you: ${machine.describeNext(next)}.`;
-  if (sessions === null) return null;
-  const [session] = sessionsAt(sessions, dir);
-  const state = sessionState(session);
-  if (state === 'running') return null;
-  if (!isOpen(item)) return `${item.id} has finished, so it's ready to merge.`;
-  // `claude agents --json` says a session is blocked but not on what, so only attaching shows it.
-  if (state === 'blocked') {
-    return `${item.id}'s build is waiting for a reply. To see what it asked, run claude attach ${sessionName(item)} in a terminal. To start it again from its last commit, use /sdlc:launch ${slugOf(item)}.`;
-  }
-  return `${item.id} stopped at ${item.stage} with work left, so use /sdlc:launch ${slugOf(item)}.`;
-}
-
 module.exports = {
-  attention,
-  backgroundSessions,
   cleanup,
-  continueAfterApproval,
-  describeSession,
-  launch,
+  mergeSlice,
+  openWindow,
   runVerify,
-  stopSessions,
+  slices,
+  start,
+  startsWorktree,
   sync,
 };

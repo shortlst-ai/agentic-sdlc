@@ -46,7 +46,7 @@ src/export/settings.py
 ```
 ````
 
-Test files are always in scope, so don't list them. Use one slice unless the change would run past about 150 changed lines, or has parts with separate purposes that a reviewer could judge apart. Each slice costs a full round of building and review, so splitting a small fix three ways triples the time without making it safer. A fix that touches several places for the same reason is one slice, and so is a small helper together with the code that uses it. A later slice may build on an earlier one.
+Test files are always in scope, so don't list them. If a slice needs another to be built first, say so at the end of its heading, as in `### S3: Export the file (after S1)`. Slices without that can be built at the same time, each in a worktree of its own, so two slices whose scopes share a file must say which comes after. Use one slice unless the change would run past about 150 changed lines, or has parts with separate purposes that a reviewer could judge apart. Each slice costs a full round of building and review, so splitting a small fix three ways triples the time without making it safer. A fix that touches several places for the same reason is one slice, and so is a small helper together with the code that uses it. A later slice may build on an earlier one, if its heading says so.
 
 For a bug fix, say which test should fail first.
 

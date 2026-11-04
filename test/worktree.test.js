@@ -131,6 +131,16 @@ function factoryWorktree(t, setup) {
   return { root, dir: worktree(root, 'a') };
 }
 
+// An open item that reached main from another branch, as no change normally does.
+function itemOnMain(root) {
+  git(root, 'switch', '-q', '-c', 'side');
+  sdlc(root, 'new', 'base');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'item on a side branch');
+  git(root, 'switch', '-q', 'main');
+  git(root, 'merge', '-q', 'side');
+}
+
 function items(cwd) {
   return JSON.parse(sdlc(cwd, 'status', '--json').stdout).items.map((item) => item.id);
 }
@@ -144,20 +154,16 @@ test('an item records the branch it was created on', (t) => {
 
 test('a session sees only its own branch\'s items', (t) => {
   const { root, dir } = factoryWorktree(t);
-  sdlc(root, 'new', 'base');
-  git(root, 'add', '-A');
-  git(root, 'commit', '-q', '-m', 'item on main');
+  itemOnMain(root);
   git(dir, 'merge', '-q', 'main');
   sdlc(dir, 'new', 'feature');
   assert.deepEqual(items(dir), ['0002-feature']);
-  assert.deepEqual(items(root), ['0001-base']);
+  assert.deepEqual(items(root), []);
 });
 
 test('another branch\'s open item doesn\'t block or unblock an edit', (t) => {
   const { root, dir } = factoryWorktree(t);
-  sdlc(root, 'new', 'base');
-  git(root, 'add', '-A');
-  git(root, 'commit', '-q', '-m', 'item on main');
+  itemOnMain(root);
   git(dir, 'merge', '-q', 'main');
   const input = { cwd: dir, tool_input: { file_path: path.join(dir, 'a.py') } };
   assert.equal(hook('pre-edit', input).status, 0);
@@ -174,9 +180,7 @@ test('with one open item on the branch, commands need no id', (t) => {
 
 test('session start lists only this branch\'s work', (t) => {
   const { root, dir } = factoryWorktree(t);
-  sdlc(root, 'new', 'base');
-  git(root, 'add', '-A');
-  git(root, 'commit', '-q', '-m', 'item on main');
+  itemOnMain(root);
   git(dir, 'merge', '-q', 'main');
   assert.equal(hook('session-start', { cwd: dir }).stdout, '');
 });

@@ -15,4 +15,6 @@ You'll be told the work item folder and which slice is yours. Read `spec.md` fir
 - Work test-first. On a bug fix, commit the failing test before the fix, then make it pass by changing the code, never the test
 - If the spec is wrong or you need a file outside your scope, stop and say so. Don't work around it
 
-Finish by reporting what you changed and what you ran. Don't say something passed unless you saw it pass.
+If you were told you're in a worktree of your own, commit your work there before you finish, with your slice as the last line of each commit message, such as `Slice: S2`. Nobody else can see it until it's committed.
+
+Finish by reporting what you changed and what you ran, and, in a worktree of your own, its path from `pwd`. Don't say something passed unless you saw it pass.

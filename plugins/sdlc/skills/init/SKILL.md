@@ -13,7 +13,7 @@ Set up the factory in this repo.
    sdlc init --setup "<cmd>" --verify "<cmd>" --quick "<cmd with {tests}>" --format "<cmd with {file}>" --critical "a/**,b/**" --protected "gen/**"
    ```
 
-4. Tell the person to review and commit `.sdlc/`, `.claude/settings.json`, and `.gitignore` to the base branch. Worktrees can't see the factory until that's done.
-5. Tell them this session, on the default branch, is where they start and approve changes, beginning with `/sdlc:new <name>`. Each build then runs in the background in its own worktree after `/sdlc:launch`.
+4. Tell the person to review and commit `.sdlc/`, `.claude/settings.json`, and `.gitignore` to the base branch. Worktrees can't see the factory until that's done. The settings turn on agent teams, allow the `sdlc` command, and set `worktree.baseRef` to `head`, so slices can build at the same time.
+5. Tell them this session, on the default branch, is their main session. `/sdlc:new <name>` here gives each change its own worktree and opens a VS Code window on it, where everything else for that change happens.
 
 Don't edit `.sdlc/config.json` yourself. After init, only people change it.

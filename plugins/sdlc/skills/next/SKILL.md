@@ -10,12 +10,11 @@ Run `sdlc status --json` and act on `next`. If you were given a name, or this co
 
 | `next.action` | What to do |
 | --- | --- |
-| `new` | Ask what to work on, then use `/sdlc:new` |
+| `new` | Ask what to work on, then use `/sdlc:new`. On the default branch, each change already started has its own window: if the person means one of those, tell them to carry on there, and run `sdlc status` to show where it is |
 | `choose` | Ask which item, using the ids listed |
 | `produce` | Use the stage's skill, in the table below. If `next.stage` is `verify` but the item is already past it, the code changed after it was tested, so run `sdlc rework --reason "<what changed>"` |
 | `approve` | Stop. Show what the person needs to decide, as below, and ask them to type `/sdlc:approve <name of this item>`, here or in any other session on this repo. This session carries on by itself once they have. You can't approve anything |
 | `advance` | Run `sdlc advance`, except at `build` as noted below, then run this skill again |
-| `launch` | Stop. Both documents are approved. Tell the person they can type `/sdlc:launch <name of this item>`. Don't advance it: it can't be built on the default branch |
 | `none` | Run `sdlc sync`. If that puts the item back at build, run this skill again. Otherwise show the review's findings. With a remote, push and open a pull request naming the item. Then merge, as below |
 
 | Stage | Skill |
@@ -44,7 +43,9 @@ git -C <main checkout> merge --no-ff <item's branch>
 
 Tell them to merge before removing the worktree, because removing it deletes the branch and its commits. Never merge any other way: `sdlc merge` is the only route open to you.
 
-`sdlc advance` commits the item's records itself, so a resumed session can pick up from Git. Commit the code and reports you write between steps. On the default branch, commit nothing: a draft stays uncommitted until `/sdlc:launch` moves it.
+Once it's merged, tell the person they can close this window and use `/sdlc:cleanup` in the main session to remove the worktree.
+
+`sdlc advance` commits the item's records itself, so a resumed session can pick up from Git. Commit the code and reports you write between steps. On the default branch, commit nothing: changes live in worktrees of their own.
 
 To bring in changes from the default branch, run `sdlc sync`, and never merge or rebase by hand. It keeps the item's records straight. If it reports conflicts, the item is back at build: resolve them, run the tests, and commit.
 

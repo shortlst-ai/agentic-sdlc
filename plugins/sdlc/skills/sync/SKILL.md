@@ -5,10 +5,9 @@ argument-hint: "[name]"
 
 Run `sdlc sync $ARGUMENTS`, on its own, with a timeout of 10 minutes, because it can run the project's tests.
 
-In a main session with no name, run `sdlc status`, then sync each change that has a worktree, one at a time, skipping any that are still running.
+A change syncs only in its own window, because the session there owns its files. In the main session, tell the person to run `/sdlc:sync` in each change's window instead: `sdlc status` shows where they are.
 
-- **Up to date, or now includes the default branch:** nothing else is needed. If it says the build has started again, that build already has the new code, so don't launch it.
-- **Back at build, or conflicts:** the change's tests failed or its code changed, so it goes back through verify and review. From a main session its build restarts by itself. In a worktree, use `/sdlc:next`.
-- **Still running:** leave it. It syncs itself before it opens its pull request.
+- **Up to date, or now includes the default branch:** nothing else is needed.
+- **Back at build, or conflicts:** the change's tests failed or its code changed, so it goes back through verify and review. Use `/sdlc:next`.
 
 Report what it printed.

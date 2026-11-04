@@ -1,19 +1,28 @@
 ---
-description: Build the current work item, one slice at a time. Use at the build stage.
+description: Build the current work item, slice by slice. Use at the build stage.
 ---
 
 If `git status` shows an unfinished merge, `sdlc sync` left conflicts. Resolve them first, keeping what both sides meant, run the tests, and commit.
 
-Work through the slices in `spec.md` in order, skipping any that already passed in `evidence/reviews/`. A spec with no slice headings is one slice, `S1`. For each slice:
+Run `sdlc slices --json`. It lists the slices in `spec.md`, which have passed their review, and which are `ready` to build now. A slice waits for the ones its heading says it comes after.
+
+**If more than one slice is ready and `parallel` is true,** build the ready ones at the same time:
+
+1. In one message, spawn one `sdlc:builder` for each, with `isolation: "worktree"`. Tell each its slice and the work item folder, and that it's in a worktree of its own, so it commits its work there with `Slice: S2` as the last line of each commit message and ends its report with its worktree's path.
+2. When each stops, a hook has already checked its diff and run the project's quick check, and sends it back if they fail. If one gave up, tell the person.
+3. Once they've all finished, run `sdlc merge-slice <its worktree path>` for each, one at a time. If one conflicts, nothing changes: build that slice again here on its own, as below, after the others.
+4. Review each merged slice as in steps 4 to 6 below.
+
+**Otherwise,** build the first ready slice here:
 
 1. Spawn one `sdlc:builder`, telling it the slice and the work item folder. Use `/sdlc:team` for how.
 2. When it stops, a hook has already checked its diff and run the project's quick check, and sends it back if they fail. If it gave up, tell the person.
 3. Commit the work, with `Slice: S1` as the last line of each commit message.
 4. Spawn a `sdlc:reviewer` for this slice only, giving it the work item folder and the slice's commits. It has seen none of the building, which is the point.
 5. Save its report as written to `evidence/reviews/S1.md` in the work item folder, and commit it.
-6. If the verdict isn't `pass`, send the findings to the builder and review again, up to two rounds. Then stop and tell the person.
+6. If the verdict isn't `pass`, send the findings to a builder for that slice and review again, up to two rounds. Then stop and tell the person.
 
-Don't start a slice until the one before it has passed, so a mistake isn't built on.
+Then run `sdlc slices --json` again, and carry on until every slice has passed. Don't start a slice before the ones it comes after have passed, so a mistake isn't built on.
 
 If something turns up that the spec doesn't cover:
 

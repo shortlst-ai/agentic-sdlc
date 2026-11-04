@@ -234,15 +234,16 @@ test('pre-bash blocks a push from the default branch', (t) => {
   assert.equal(preBash(cwd, 'git push').status, 0);
 });
 
-test('pre-bash keeps drafts off the default branch, and nothing else', (t) => {
+test('pre-bash keeps work items off the default branch, and nothing else', (t) => {
   const cwd = factory(t);
   git(cwd, 'commit', '-q', '--allow-empty', '-m', 'first');
   git(cwd, 'branch', '-M', 'main');
-  sdlc(cwd, 'new', 'draft');
+  fs.mkdirSync(path.join(cwd, '.sdlc', 'work', '0001-draft'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.sdlc', 'work', '0001-draft', 'intent.md'), 'intent');
   git(cwd, 'add', '.sdlc/work');
   const refused = preBash(cwd, 'git commit -m draft');
   assert.equal(refused.status, 2);
-  assert.match(refused.stderr, /drafts stay uncommitted/);
+  assert.match(refused.stderr, /never go on the default branch/);
 
   git(cwd, 'reset', '-q');
   fs.writeFileSync(path.join(cwd, 'notes.md'), 'unrelated');
@@ -409,8 +410,6 @@ describe('a session that stops with work left', () => {
     const cwd = factory(t);
     sdlc(cwd, 'new', 'feature');
     assert.equal(stopped(cwd, {}, { CLAUDE_CODE_SESSION_ATTENDED: '0' }).stdout, '');
-    const build = { CLAUDE_CODE_SESSION_ATTENDED: '0', CLAUDE_JOB_DIR: '/jobs/abc' };
-    assert.equal(JSON.parse(stopped(cwd, {}, build).stdout).decision, 'block');
   });
 
   test('nothing open means nothing to say', (t) => {

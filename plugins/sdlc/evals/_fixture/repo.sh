@@ -96,6 +96,21 @@ at_spec_gate() {
   commit 'Write the spec'
 }
 
+# At build, with two slices that share no files and so can be built at the same time.
+at_parallel_build() {
+  on_a_worktree_branch
+  printf 'def shout(text):\n    return text.upper()\n' >strings.py
+  commit 'Add strings'
+  sdlc new feature >/dev/null
+  printf '# Intent\n\nPeople need to subtract numbers and whisper text.\n' >"$ITEM/intent.md"
+  approval intent intent.md
+  sdlc advance >/dev/null
+  printf '# Spec\n\n### S1: Add subtract\n\n```scope\ncalc.py\n```\n\n### S2: Add whisper, the lower-case twin of shout\n\n```scope\nstrings.py\n```\n' >"$ITEM/spec.md"
+  approval spec spec.md
+  sdlc advance >/dev/null
+  commit 'Approve the spec'
+}
+
 # $1 is the review report.
 at_merge() {
   at_spec_gate

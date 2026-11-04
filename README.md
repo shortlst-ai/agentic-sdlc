@@ -18,7 +18,7 @@
 | Changes that sprawl past what you asked for | Each slice may touch only the files you approved, and anything outside them is refused |
 | Reviewing every line yourself | An independent reviewer checks each slice before the next one builds on it |
 | Losing the thread when a session ends | Specs, approvals, and evidence are committed to Git, so any session can pick up |
-| Waiting while one change finishes | Several changes build at once in the background, while you stay in one session |
+| Waiting while one change finishes | Each change gets its own worktree and window, and slices that don't depend on each other build at the same time |
 
 You stay in charge throughout: only you can approve, and nothing merges without you, either by your hand or by your sign-off.
 
@@ -45,7 +45,7 @@ Then start your first change:
 /sdlc:new add-csv-export
 ```
 
-Describe the change, and approve the intent and spec with `/sdlc:approve` when the session asks. `/sdlc:launch add-csv-export` starts the build, and you'll be told when the pull request is ready.
+Describe the change. It gets its own worktree, and a VS Code window opens on it. Open Claude Code in that window and type `/sdlc:next`. Approve the intent and spec there with `/sdlc:approve` when the session asks, and it builds the change through to the pull request.
 
 The [tutorial](docs/tutorial.md) walks through every step, including the CI check that makes the gates hold.
 
@@ -64,7 +64,7 @@ flowchart TD
 
     gateSpec --> build
 
-    subgraph slices [Each slice, in order]
+    subgraph slices [Each slice, at the same time where they don't depend on each other]
         build[Build it, test first] --> sliceReview[Independent review of this slice]
         sliceReview -->|Findings| build
     end
@@ -88,7 +88,7 @@ The yellow steps are yours, and everything else runs by itself.
 - **The spec** says exactly what will change, in slices, with the files each one may touch.
 - **Each slice** is built test-first, then checked by a reviewer that saw none of the building.
 
-You work from one session on your default branch. Each build runs in the background in its own worktree, so you can [run several at once](docs/parallel.md).
+Your main session stays on your default branch, and starts each change in its own worktree and window, so you can [work on several at once](docs/parallel.md).
 
 ## Specs you can read
 
@@ -127,10 +127,9 @@ On a real project, an 80-line fix used to come with a 2,200-word spec. In tests,
 | Command | What it does |
 | --- | --- |
 | `/sdlc:init` | Sets up the factory in a repo |
-| `/sdlc:new <name>` | Starts a change |
+| `/sdlc:new <name>` | Starts a change. From your default branch, in its own worktree and window |
 | `/sdlc:approve [name]` | Records your approval. People only |
-| `/sdlc:launch <name>` | Builds an approved change in its own worktree, or restarts one that stopped |
-| `/sdlc:status` | Shows every change, what it needs, and whether its build is running |
+| `/sdlc:status` | Shows every change, what it needs, and where it is |
 | `/sdlc:next [name]` | Runs the next step |
 | `/sdlc:sync [name]` | Brings your default branch into a change |
 | `/sdlc:cleanup [name]` | Removes the worktrees and branches of merged changes |
@@ -173,7 +172,7 @@ The full list is in [what's proven](docs/whats-proven.md).
 
 ## What it runs and changes
 
-The plugin sends nothing anywhere itself. It edits `.claude/settings.json` to allow its own `sdlc` command and turn on agent teams, commits each change's records to that change's branch, and creates worktrees under `.claude/worktrees/`. It runs your project's setup and test commands, `git`, background `claude` sessions, and, with a GitHub remote, `gh` to open pull requests and issues. The [plugin's README](plugins/sdlc/README.md#what-it-runs-and-changes) lists everything.
+The plugin sends nothing anywhere itself. It edits `.claude/settings.json` to allow its own `sdlc` command and turn on agent teams, commits each change's records to that change's branch, and creates worktrees under `.claude/worktrees/`. It runs your project's setup and test commands, `git`, VS Code's `code` command to open a window on a new change, and, with a GitHub remote, `gh` to open pull requests and issues. The [plugin's README](plugins/sdlc/README.md#what-it-runs-and-changes) lists everything.
 
 ## Learn more
 

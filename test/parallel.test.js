@@ -10,20 +10,14 @@ const { test } = require('node:test');
 const PLUGIN = path.join(__dirname, '..', 'plugins', 'sdlc');
 const CLI = path.join(PLUGIN, 'bin', 'sdlc');
 const HUMAN = path.join(PLUGIN, 'scripts', 'on-human-command.js');
+const HOOK = path.join(PLUGIN, 'scripts', 'hook.js');
 const AWAIT = path.join(PLUGIN, 'scripts', 'await-approval.js');
 const SPEC = '### S1: The change\n\n```scope\nsrc/**\n```\n';
 const ID = '0001-csv';
 
-// Stands in for Claude Code, so a test can say which sessions exist and see what
-// the factory asked for.
-const FAKE_CLAUDE = `#!/bin/sh
-{ printf '%s|' "$PWD"; printf '%s ' "$@"; env | grep -c '^CLAUDECODE=' ; } >> "$FAKE_DIR/calls"
-case "$1" in
-  agents) cat "$FAKE_DIR/sessions" 2>/dev/null || echo '[]' ;;
-  --bg) [ -f "$FAKE_DIR/refuse" ] && { echo 'Workspace not trusted' >&2; exit 1; }
-        [ -f "$FAKE_DIR/service" ] && sleep 5 &
-        echo 'backgrounded · abc12345 · name' ;;
-esac
+// Stands in for VS Code's command-line tool, so a test can see what it was asked to open.
+const FAKE_CODE = `#!/bin/sh
+echo "$@" >> "$FAKE_DIR/code-calls"
 exit 0
 `;
 
@@ -33,23 +27,18 @@ function tempDir(t, prefix) {
   return dir;
 }
 
-function fakeClaude(t) {
-  const dir = tempDir(t, 'sdlc-claude-');
-  fs.writeFileSync(path.join(dir, 'claude'), FAKE_CLAUDE, { mode: 0o755 });
-  return dir;
-}
-
 function context(t) {
-  const fake = fakeClaude(t);
+  const fake = tempDir(t, 'sdlc-fake-');
+  fs.writeFileSync(path.join(fake, 'code'), FAKE_CODE, { mode: 0o755 });
   const env = {
     ...process.env,
     GIT_CONFIG_GLOBAL: os.devNull,
     GIT_CONFIG_NOSYSTEM: '1',
     PATH: `${fake}:${process.env.PATH}`,
     FAKE_DIR: fake,
-    CLAUDECODE: '1',
+    CLAUDE_CONFIG_DIR: tempDir(t, 'sdlc-home-'),
   };
-  delete env.CLAUDE_CODE_SESSION_ATTENDED;
+  for (const key of ['CLAUDE_CODE_SESSION_ATTENDED', 'VSCODE_PID', 'TERM_PROGRAM']) delete env[key];
   return {
     fake,
     env,
@@ -61,8 +50,11 @@ function context(t) {
       const result = spawnSync('node', [HUMAN, command], { input, encoding: 'utf8', env });
       return JSON.parse(result.stdout);
     },
-    calls: () => (fs.existsSync(path.join(fake, 'calls')) ? fs.readFileSync(path.join(fake, 'calls'), 'utf8') : ''),
-    sessions: (list) => fs.writeFileSync(path.join(fake, 'sessions'), JSON.stringify(list)),
+    hook: (event, input) => spawnSync('node', [HOOK, event], { input: JSON.stringify(input), encoding: 'utf8', env }),
+    codeCalls: () => {
+      const file = path.join(fake, 'code-calls');
+      return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    },
   };
 }
 
@@ -90,22 +82,29 @@ function state(root, id = ID) {
   return JSON.parse(fs.readFileSync(itemFile(root, 'state.json', id), 'utf8'));
 }
 
-// A draft on the default branch with both documents approved, ready to launch.
-function approvedDraft(c, slug = 'csv', id = ID) {
-  const { root } = c;
-  assert.equal(c.sdlc(root, 'new', slug).status, 0);
-  fs.writeFileSync(itemFile(root, 'intent.md', id), 'the intent');
-  c.human(root, 'approve', slug);
-  c.sdlc(root, 'advance', slug);
-  fs.writeFileSync(itemFile(root, 'spec.md', id), SPEC);
-  c.human(root, 'approve', slug);
-}
-
-function launched(c, slug = 'csv', id = ID) {
-  approvedDraft(c, slug, id);
-  const result = c.sdlc(c.root, 'launch', slug);
+// A change started from the main session, in the worktree it gets.
+function started(c, slug = 'csv') {
+  const result = c.sdlc(c.root, 'new', slug, '--request', 'Export the list as CSV');
   assert.equal(result.status, 0, result.stderr);
   return path.join(c.root, '.claude', 'worktrees', slug);
+}
+
+function advance(c, cwd) {
+  const result = c.sdlc(cwd, 'advance');
+  assert.equal(result.status, 0, result.stderr);
+}
+
+// A started change with both documents approved, at build.
+function building(c, slug = 'csv', id = ID, spec = SPEC) {
+  const dir = started(c, slug);
+  fs.writeFileSync(itemFile(dir, 'intent.md', id), 'the intent');
+  c.human(dir, 'approve', slug);
+  advance(c, dir);
+  fs.writeFileSync(itemFile(dir, 'spec.md', id), spec);
+  c.human(dir, 'approve', slug);
+  advance(c, dir);
+  assert.equal(state(dir, id).stage, 'build');
+  return dir;
 }
 
 // `sdlc advance` commits the item's records itself, so there may be nothing left.
@@ -114,15 +113,10 @@ function commitAll(c, cwd) {
   c.git(cwd, 'commit', '-q', '--allow-empty', '-m', 'work');
 }
 
-function advance(c, cwd) {
-  const result = c.sdlc(cwd, 'advance');
-  assert.equal(result.status, 0, result.stderr);
-}
-
-// A launched change taken right to the end, with every step really done. A review
-// that didn't plainly pass gets a person's sign-off on the merge.
+// A change taken right to the end, with every step really done. A review that
+// didn't plainly pass gets a person's sign-off on the merge.
 function finished(c, slug = 'csv', id = ID, review = 'Verdict: pass\n') {
-  const dir = launched(c, slug, id);
+  const dir = building(c, slug, id);
   touch(dir, `src/${slug}.py`);
   touch(dir, itemFile('', 'evidence/reviews/S1.md', id), 'Verdict: pass\n');
   advance(c, dir);
@@ -144,199 +138,212 @@ function mainMoves(c, file, content) {
   c.git(c.root, 'commit', '-q', '-m', 'main moved');
 }
 
-test('a draft on the default branch stays uncommitted and leaves main clean of commits', (t) => {
+// What Claude Code makes for a subagent with `isolation: worktree`, once
+// `worktree.baseRef` is `head`: a worktree beside the others, on its own branch.
+function sliceWorktree(c, from, name = 'agent-a1') {
+  const dir = path.join(c.root, '.claude', 'worktrees', name);
+  c.git(from, 'worktree', 'add', '-q', '-b', `worktree-${name}`, dir, 'HEAD');
+  return dir;
+}
+
+test('starting a change on the default branch gives it a committed worktree, and leaves main alone', (t) => {
   const c = repo(t);
   const before = c.gitOut(c.root, 'rev-parse', 'HEAD');
-  approvedDraft(c);
+  const result = c.sdlc(c.root, 'new', 'csv', '--request', 'Export the list as CSV');
+  assert.equal(result.status, 0, result.stderr);
+  const dir = path.join(c.root, '.claude', 'worktrees', 'csv');
+  assert.match(result.stdout, /^0001-csv {2}standard {2}intent {2}in .*\.claude\/worktrees\/csv, on branch worktree-csv/);
+  assert.match(result.stdout, /Open .*worktrees\/csv in its own window.*\/sdlc:next/);
+
   assert.equal(c.gitOut(c.root, 'rev-parse', 'HEAD'), before);
-  assert.ok(fs.existsSync(itemFile(c.root, 'spec.md')));
-});
+  assert.equal(c.gitOut(c.root, 'status', '--porcelain'), '');
+  assert.equal(fs.existsSync(path.join(c.root, '.sdlc', 'work', ID)), false);
 
-test('an approved draft waits to be launched, and advancing can\'t skip that', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
-  const { next } = JSON.parse(c.sdlc(c.root, 'status', 'csv', '--json').stdout);
-  assert.equal(next.action, 'launch');
-  const refused = c.sdlc(c.root, 'advance', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /\/sdlc:launch/);
-  assert.equal(state(c.root).stage, 'spec');
-});
-
-test('launching needs both approvals', (t) => {
-  const c = repo(t);
-  c.sdlc(c.root, 'new', 'csv');
-  fs.writeFileSync(itemFile(c.root, 'intent.md'), 'the intent');
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 1);
-
-  c.human(c.root, 'approve', 'csv');
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 1);
-
-  c.sdlc(c.root, 'advance', 'csv');
-  fs.writeFileSync(itemFile(c.root, 'spec.md'), SPEC);
-  const refused = c.sdlc(c.root, 'launch', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /approve/);
-  assert.equal(fs.existsSync(path.join(c.root, '.claude', 'worktrees', 'csv')), false);
-  assert.doesNotMatch(c.calls(), /--bg/);
-});
-
-test('editing an approved spec stops it being launched', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
-  fs.appendFileSync(itemFile(c.root, 'spec.md'), 'one more thing\n');
-  const refused = c.sdlc(c.root, 'launch', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /changed after approval/);
-});
-
-test('launching moves the draft to a committed worktree and starts a session there', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-
-  assert.equal(fs.existsSync(itemFile(c.root, 'state.json')), false);
   assert.equal(c.gitOut(dir, 'branch', '--show-current'), 'worktree-csv');
   assert.equal(c.gitOut(dir, 'status', '--porcelain'), '');
-  assert.match(c.gitOut(dir, 'ls-files', '.sdlc/work'), /approvals\/spec\.json/);
-  assert.equal(c.gitOut(c.root, 'status', '--porcelain'), '');
-
   const item = state(dir);
-  assert.equal(item.stage, 'build');
+  assert.equal(item.stage, 'intent');
   assert.equal(item.branch, 'worktree-csv');
-  assert.equal(item.base, c.gitOut(c.root, 'rev-parse', 'main'));
-  const { items } = JSON.parse(c.sdlc(dir, 'status', '--json').stdout);
-  assert.equal(items[0].next.action, 'advance');
-
-  const call = c.calls().split('\n').find((line) => line.includes('--bg'));
-  assert.equal(call.split('|')[0], dir);
-  assert.match(call, /--bg --settings .*AGENT_TEAMS.* --model sonnet -n sdlc-csv \/sdlc:next/);
-  assert.match(call, /\s0$/, 'the session must not look like a child of this one');
+  assert.equal(item.base, before);
+  assert.equal(fs.readFileSync(itemFile(dir, 'request.md'), 'utf8'), 'Export the list as CSV\n');
+  assert.equal(JSON.parse(c.sdlc(dir, 'status', '--json').stdout).next.action, 'produce');
+  assert.equal(c.codeCalls(), '', 'nothing opens outside VS Code');
 });
 
-test('a project can choose the model its builds run on', (t) => {
+test('inside VS Code, a new window opens on the worktree', (t) => {
   const c = repo(t);
-  const file = path.join(c.root, '.sdlc', 'config.json');
-  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
-  fs.writeFileSync(file, JSON.stringify({ ...config, build_model: 'opus' }));
-  c.git(c.root, 'commit', '-q', '-am', 'builds on opus');
-  launched(c);
-  assert.match(c.calls(), /--bg .*--model opus -n sdlc-csv/);
+  const result = spawnSync(CLI, ['new', 'csv'], { cwd: c.root, encoding: 'utf8', env: { ...c.env, VSCODE_PID: '1' } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /A VS Code window has opened on it/);
+  assert.equal(c.codeCalls().trim(), `--new-window ${path.join(c.root, '.claude', 'worktrees', 'csv')}`);
 });
 
-test('a worktree that can\'t commit leaves the draft where it was', (t) => {
+test('starting waits for Claude\'s settings to be committed, or the change would start without the plugin', (t) => {
   const c = repo(t);
-  approvedDraft(c);
-  touch(c.root, '.git/hooks/pre-commit', '#!/bin/sh\nexit 1\n');
-  fs.chmodSync(path.join(c.root, '.git/hooks/pre-commit'), 0o755);
-  const refused = c.sdlc(c.root, 'launch', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /stays here/);
-  assert.ok(fs.existsSync(itemFile(c.root, 'spec.md')));
-  assert.equal(fs.existsSync(path.join(c.root, '.claude', 'worktrees', 'csv')), false);
-  assert.equal(c.gitOut(c.root, 'branch', '--list', 'worktree-csv'), '');
-  assert.equal(state(c.root).stage, 'spec');
-});
-
-test('a draft committed on the default branch is refused rather than split in two', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
-  commitAll(c, c.root);
-  const refused = c.sdlc(c.root, 'launch', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /committed on main/);
-});
-
-test('a session that won\'t start says why, and launching again carries on', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
-  touch(c.fake, 'refuse');
-  const failed = c.sdlc(c.root, 'launch', 'csv');
-  assert.equal(failed.status, 1);
-  assert.match(failed.stderr, /Workspace not trusted/);
-
-  fs.rmSync(path.join(c.fake, 'refuse'));
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
-});
-
-test('launching doesn\'t wait on a service that outlives the session start', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
-  touch(c.fake, 'service');
-  const started = Date.now();
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
-  assert.ok(Date.now() - started < 4000);
-});
-
-test('launching again refuses a build that\'s running, and restarts one that\'s blocked or stopped', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
-
-  c.sessions([{ ...session, status: 'busy', state: 'working' }]);
-  assert.match(c.sdlc(c.root, 'launch', 'csv').stderr, /still running/);
-
-  // Blocked is how a session looks once it has ended its turn with a message, too.
-  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
-  assert.equal(c.calls().match(/stop abc/g).length, 1);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
-
-  c.sessions([{ ...session, status: 'idle', state: 'working' }]);
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
-  assert.equal(c.calls().match(/stop abc/g).length, 2);
-  assert.equal(c.calls().match(/--bg/g).length, 3);
-});
-
-test('launching waits for Claude\'s settings to be committed, or the build would start without the plugin', (t) => {
-  const c = repo(t);
-  approvedDraft(c);
   const settings = path.join(c.root, '.claude', 'settings.json');
   fs.writeFileSync(settings, fs.readFileSync(settings, 'utf8').replace('}', ', "enabledPlugins": {}\n}'));
-  const refused = c.sdlc(c.root, 'launch', 'csv');
+  const refused = c.sdlc(c.root, 'new', 'csv');
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /commit \.claude\/settings\.json first/);
-  assert.ok(fs.existsSync(itemFile(c.root, 'spec.md')), 'the draft stays here');
-  assert.doesNotMatch(c.calls(), /--bg/);
+  assert.equal(fs.existsSync(path.join(c.root, '.claude', 'worktrees', 'csv')), false);
 
   c.git(c.root, 'commit', '-q', '-m', 'settings', '--', '.claude/settings.json');
-  assert.equal(c.sdlc(c.root, 'launch', 'csv').status, 0);
+  assert.equal(c.sdlc(c.root, 'new', 'csv').status, 0);
 });
 
-test('launching can\'t get past a gate that reopened', (t) => {
+test('a worktree that can\'t commit leaves nothing behind', (t) => {
   const c = repo(t);
-  const dir = launched(c);
-  fs.appendFileSync(itemFile(dir, 'spec.md'), 'an amendment\n');
-  const refused = c.sdlc(c.root, 'launch', 'csv');
+  touch(c.root, '.git/hooks/pre-commit', '#!/bin/sh\nexit 1\n');
+  fs.chmodSync(path.join(c.root, '.git/hooks/pre-commit'), 0o755);
+  const refused = c.sdlc(c.root, 'new', 'csv');
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /approve/);
+  assert.match(refused.stderr, /can't commit 0001-csv/);
+  assert.equal(fs.existsSync(path.join(c.root, '.claude', 'worktrees', 'csv')), false);
+  assert.equal(c.gitOut(c.root, 'branch', '--list', 'worktree-csv'), '');
+});
+
+test('a bad or taken name is refused before anything is made', (t) => {
+  const c = repo(t);
+  assert.equal(c.sdlc(c.root, 'new', 'Bad_Name').status, 2);
+  assert.equal(fs.existsSync(path.join(c.root, '.claude', 'worktrees')), false);
+  started(c);
+  const taken = c.sdlc(c.root, 'new', 'csv');
+  assert.equal(taken.status, 1);
+  assert.match(taken.stderr, /is one there already/);
 });
 
 test('changes in flight never share a number', (t) => {
   const c = repo(t);
-  launched(c);
-  const result = c.sdlc(c.root, 'new', 'other');
-  assert.match(result.stdout, /^0002-other/);
+  started(c);
+  assert.match(c.sdlc(c.root, 'new', 'other').stdout, /^0002-other/);
 });
 
-test('a change can be named by its slug', (t) => {
+test('status in the main session shows each change and where it is', (t) => {
   const c = repo(t);
-  approvedDraft(c);
-  assert.equal(JSON.parse(c.sdlc(c.root, 'status', 'csv', '--json').stdout).items[0].id, ID);
+  started(c);
+  assert.match(c.sdlc(c.root, 'status').stdout, /0001-csv .*next: write intent\.md.*\(in \.claude\/worktrees\/csv\)/);
 });
 
-test('status on the main session shows each build and its session', (t) => {
+test('a person can approve from the main session, and the change\'s window carries on', async (t) => {
   const c = repo(t);
-  const dir = launched(c);
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'blocked' }]);
-  assert.match(c.sdlc(c.root, 'status').stdout, /0001-csv .*session waiting on you/);
-  c.sessions([]);
-  assert.match(c.sdlc(c.root, 'status').stdout, /session stopped/);
+  const dir = started(c);
+  fs.writeFileSync(itemFile(dir, 'intent.md'), 'the intent');
+  const watcher = watch(c, dir);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.match(c.human(c.root, 'approve', 'csv').hookSpecificOutput.additionalContext, /Approval recorded: 0001-csv intent/);
+  const result = await outcome(watcher);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /approved 0001-csv, so continue with \/sdlc:next 0001-csv/);
+});
+
+test('the main session has no gate to wait at', async (t) => {
+  const c = repo(t);
+  const dir = started(c);
+  fs.writeFileSync(itemFile(dir, 'intent.md'), 'the intent');
+  assert.equal((await outcome(watch(c, c.root), 400)).code, 0);
+});
+
+const THREE_SLICES = [
+  '### S1: Parse it\n\n```scope\nsrc/parse.py\n```\n',
+  '### S2: Export it (after S1)\n\n```scope\nsrc/export.py\n```\n',
+  '### S3: Document it\n\n```scope\ndocs/**\n```\n',
+].join('\n');
+
+test('slices say which can be built now, and wait for the ones they come after', (t) => {
+  const c = repo(t);
+  const dir = building(c, 'csv', ID, THREE_SLICES);
+  const listed = () => JSON.parse(c.sdlc(dir, 'slices', '--json').stdout);
+  assert.deepEqual(listed(), {
+    id: ID,
+    parallel: true,
+    slices: [
+      { id: 'S1', title: 'Parse it', after: [], state: 'ready' },
+      { id: 'S2', title: 'Export it', after: ['S1'], state: 'waiting', waiting: ['S1'] },
+      { id: 'S3', title: 'Document it', after: [], state: 'ready' },
+    ],
+  });
+  assert.match(c.sdlc(dir, 'slices').stdout, /S2 {2}waits on S1 {2}Export it/);
+
+  touch(dir, itemFile('', 'evidence/reviews/S1.md'), 'Verdict: pass\n');
+  assert.deepEqual(listed().slices.map(({ state: s }) => s), ['passed', 'ready', 'ready']);
+});
+
+test('slices build one at a time unless subagent worktrees start from the change', (t) => {
+  const c = repo(t);
+  const dir = building(c);
+  const settings = path.join(dir, '.claude', 'settings.json');
+  const { worktree, ...rest } = JSON.parse(fs.readFileSync(settings, 'utf8'));
+  assert.deepEqual(worktree, { baseRef: 'head' }, 'init sets it');
+  fs.writeFileSync(settings, JSON.stringify(rest));
+  assert.equal(JSON.parse(c.sdlc(dir, 'slices', '--json').stdout).parallel, false);
+  assert.match(c.sdlc(dir, 'slices').stdout, /one at a time\. Set worktree\.baseRef to "head"/);
+});
+
+test('a slice\'s own worktree still holds the change, so its builder is held to the same checks', (t) => {
+  const c = repo(t);
+  const dir = building(c);
+  const slice = sliceWorktree(c, dir);
+  assert.deepEqual(JSON.parse(c.sdlc(slice, 'status', '--json').stdout).items.map(({ id }) => id), [ID]);
+  assert.deepEqual(JSON.parse(c.sdlc(c.root, 'status', '--json').stdout).items, [], 'main has none of its own');
+  assert.equal(c.sdlc(c.root, 'status', 'csv').status, 1, 'the slice worktree doesn\'t make the name ambiguous');
+
+  touch(slice, 'docs/elsewhere.md');
+  const stop = c.hook('subagent-stop', { cwd: slice, agent_type: 'sdlc:builder', agent_id: 'b1', session_id: 'none' });
+  assert.match(JSON.parse(stop.stdout).reason, /outside the spec's scope: docs\/elsewhere\.md/);
+});
+
+test('a worktree started from main doesn\'t take on an open change it never forked from', (t) => {
+  const c = repo(t);
+  building(c);
+  const other = sliceWorktree(c, c.root, 'plain');
+  assert.deepEqual(JSON.parse(c.sdlc(other, 'status', '--json').stdout).items, []);
+});
+
+test('a slice built in its own worktree merges back, and its worktree goes', (t) => {
+  const c = repo(t);
+  const dir = building(c);
+  const slice = sliceWorktree(c, dir);
+  touch(slice, 'src/parse.py');
+  c.git(slice, 'add', 'src/parse.py');
+  c.git(slice, 'commit', '-q', '-m', 'Parse it\n\nSlice: S1');
+
+  const result = c.sdlc(dir, 'merge-slice', slice);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Merged worktree-agent-a1 into 0001-csv and removed its worktree/);
+  assert.ok(fs.existsSync(path.join(dir, 'src/parse.py')));
+  assert.equal(fs.existsSync(slice), false);
+  assert.equal(c.gitOut(dir, 'branch', '--list', 'worktree-agent-a1'), '');
+  assert.equal(c.sdlc(dir, 'check').status, 0);
+});
+
+test('merge-slice refuses what it shouldn\'t take, and a conflict changes nothing', (t) => {
+  const c = repo(t);
+  const dir = building(c);
+  const slice = sliceWorktree(c, dir);
+  assert.match(c.sdlc(dir, 'merge-slice', slice).stderr, /has nothing this change doesn't have/);
+
+  touch(slice, 'src/shared.py', 'theirs\n');
+  assert.match(c.sdlc(dir, 'merge-slice', slice).stderr, /uncommitted changes, so commit them there first/);
+  commitAll(c, slice);
+
+  const plain = sliceWorktree(c, c.root, 'plain');
+  assert.match(c.sdlc(dir, 'merge-slice', plain).stderr, /wasn't started from 0001-csv/);
+  assert.match(c.sdlc(dir, 'merge-slice', c.root).stderr, /wasn't started from 0001-csv/);
+
+  touch(dir, 'src/shared.py', 'mine\n');
+  commitAll(c, dir);
+  const head = c.gitOut(dir, 'rev-parse', 'HEAD');
+  const refused = c.sdlc(dir, 'merge-slice', slice);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /conflicts with 0001-csv, so nothing changed/);
+  assert.equal(c.gitOut(dir, 'rev-parse', 'HEAD'), head);
+  assert.equal(c.gitOut(dir, 'status', '--porcelain'), '');
+  assert.ok(fs.existsSync(slice));
 });
 
 test('sync fixes the update that used to trip the scope check', (t) => {
   const c = repo(t);
-  const dir = launched(c);
+  const dir = building(c);
   touch(dir, 'src/csv.py');
   commitAll(c, dir);
   mainMoves(c, 'docs/x.md');
@@ -350,7 +357,7 @@ test('sync fixes the update that used to trip the scope check', (t) => {
 
 test('sync repairs a change someone already merged main into by hand', (t) => {
   const c = repo(t);
-  const dir = launched(c);
+  const dir = building(c);
   touch(dir, 'src/csv.py');
   commitAll(c, dir);
   mainMoves(c, 'docs/x.md');
@@ -370,7 +377,6 @@ test('a finished change with no overlap stays finished, once the tests pass on t
   const result = c.sdlc(dir, 'sync');
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /now includes main/);
-  assert.doesNotMatch(result.stdout, /started again/, 'the session asking is the build');
   assert.equal(state(dir).stage, 'done');
   assert.notEqual(fs.readFileSync(itemFile(dir, 'evidence/verify.md'), 'utf8'), before);
   assert.equal(c.gitOut(dir, 'status', '--porcelain'), '');
@@ -394,7 +400,7 @@ test('tests that fail on the combined code send a finished change back', (t) => 
 
 test('a change to the same file goes back through verify and review, keeping slice reviews', (t) => {
   const c = repo(t);
-  const dir = launched(c);
+  const dir = building(c);
   fs.writeFileSync(path.join(dir, 'src/shared.py'), 'ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n');
   touch(dir, itemFile('', 'evidence/reviews/S1.md'), 'Verdict: pass\n');
   advance(c, dir);
@@ -429,7 +435,7 @@ test('a change to the same file goes back through verify and review, keeping sli
 
 test('a conflict leaves the merge for the build to finish', (t) => {
   const c = repo(t);
-  const dir = launched(c);
+  const dir = building(c);
   touch(dir, 'src/shared.py', 'mine\n');
   touch(dir, itemFile('', 'evidence/reviews/S1.md'), 'Verdict: pass\n');
   advance(c, dir);
@@ -461,9 +467,9 @@ test('sync with nothing new does nothing', (t) => {
   assert.equal(c.gitOut(dir, 'rev-parse', 'HEAD'), head);
 });
 
-test('sync refuses uncommitted work, a draft, and a change that already merged', (t) => {
+test('sync refuses uncommitted work, a change that already merged, and the main session', (t) => {
   const c = repo(t);
-  const dir = launched(c);
+  const dir = building(c);
   touch(dir, 'src/csv.py');
   mainMoves(c, 'docs/x.md');
   assert.match(c.sdlc(dir, 'sync').stderr, /uncommitted/);
@@ -472,45 +478,9 @@ test('sync refuses uncommitted work, a draft, and a change that already merged',
   c.git(c.root, 'merge', '-q', '--no-edit', 'worktree-csv');
   assert.match(c.sdlc(dir, 'sync').stderr, /already merged/);
 
-  c.sdlc(c.root, 'new', 'draft');
-  assert.match(c.sdlc(c.root, 'sync', 'draft').stderr, /still a draft/);
-  assert.match(c.sdlc(c.root, 'sync').stderr, /name the change/);
-});
-
-test('syncing from the main session leaves a running build alone', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  mainMoves(c, 'docs/x.md');
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'busy', state: 'working' }]);
-  const refused = c.sdlc(c.root, 'sync', 'csv');
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /still running/);
-  assert.equal(fs.existsSync(path.join(dir, 'docs/x.md')), false);
-});
-
-test('syncing from the main session brings in main past a blocked build, then restarts it', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  mainMoves(c, 'docs/x.md');
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'blocked' }]);
-  const result = c.sdlc(c.root, 'sync', 'csv');
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /now includes main\. Its build has started again/);
-  assert.equal(fs.existsSync(path.join(dir, 'docs/x.md')), true);
-  assert.match(c.calls(), /stop abc/);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
-});
-
-test('syncing from the main session restarts a build that has work left', (t) => {
-  const c = repo(t);
-  const dir = finished(c);
-  fs.writeFileSync(path.join(dir, 'src/shared.py'), 'mine\n');
-  mainMoves(c, 'src/shared.py', 'theirs\n');
-  commitAll(c, dir);
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'done' }]);
-
-  assert.equal(c.sdlc(c.root, 'sync', 'csv').status, 1);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
+  started(c, 'other');
+  assert.match(c.sdlc(c.root, 'sync', 'other').stderr, /run \/sdlc:sync in 0002-other's own window/);
+  assert.match(c.sdlc(c.root, 'sync').stderr, /no work item on this branch/);
 });
 
 test('sync uses the remote when it\'s ahead, and pushes the result', (t) => {
@@ -534,8 +504,7 @@ test('sync uses the remote when it\'s ahead, and pushes the result', (t) => {
 test('cleanup removes merged changes and nothing else', (t) => {
   const c = repo(t);
   const merged = finished(c);
-  const open = launched(c, 'other', '0002-other');
-  c.sessions([{ kind: 'background', id: 'abc', cwd: merged, startedAt: 1, status: 'idle', state: 'done' }]);
+  const open = started(c, 'other');
 
   assert.match(c.sdlc(c.root, 'cleanup', 'csv').stderr, /isn't merged yet/);
   assert.match(c.sdlc(c.root, 'cleanup').stdout, /No merged changes/);
@@ -546,7 +515,6 @@ test('cleanup removes merged changes and nothing else', (t) => {
   assert.equal(fs.existsSync(merged), false);
   assert.equal(c.gitOut(c.root, 'branch', '--list', 'worktree-csv'), '');
   assert.ok(fs.existsSync(open));
-  assert.match(c.calls(), /stop abc/);
 });
 
 test('cleanup refuses from inside the worktree it would remove', (t) => {
@@ -564,37 +532,6 @@ test('cleanup won\'t delete uncommitted work', (t) => {
   touch(dir, 'notes.md');
   assert.equal(c.sdlc(c.root, 'cleanup', 'csv').status, 1);
   assert.ok(fs.existsSync(path.join(dir, 'notes.md')));
-});
-
-test('an approval restarts the background build that was waiting on it', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  fs.appendFileSync(itemFile(dir, 'spec.md'), 'an amendment\n');
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'idle', state: 'done' }]);
-
-  const { additionalContext } = c.human(c.root, 'approve', 'csv').hookSpecificOutput;
-  assert.match(additionalContext, /Approval recorded/);
-  assert.match(additionalContext, /running again/);
-  assert.match(c.calls(), /stop abc/);
-  assert.equal(c.calls().match(/--bg/g).length, 2);
-});
-
-test('an approval leaves a worktree session a person is running alone', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  fs.appendFileSync(itemFile(dir, 'spec.md'), 'an amendment\n');
-  c.sessions([]);
-  const { additionalContext } = c.human(c.root, 'approve', 'csv').hookSpecificOutput;
-  assert.doesNotMatch(additionalContext, /running again/);
-  assert.equal(c.calls().match(/--bg/g).length, 1);
-});
-
-test('abandoning a change stops its build', (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  c.sessions([{ kind: 'background', id: 'abc', cwd: dir, startedAt: 1, status: 'busy', state: 'working' }]);
-  c.human(c.root, 'abandon', 'csv no longer needed');
-  assert.match(c.calls(), /stop abc/);
 });
 
 function watch(c, cwd) {
@@ -617,81 +554,6 @@ async function outcome(watcher, ms = 1500) {
   clearTimeout(timer);
   return result;
 }
-
-test('a main session hears when a build needs an approval', async (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  fs.appendFileSync(itemFile(dir, 'spec.md'), 'an amendment\n');
-  const result = await outcome(watch(c, c.root));
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /0001-csv needs you/);
-});
-
-test('a main session hears when a build is stuck or has stopped', async (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
-
-  // The shape `claude agents --json` gives a session at a prompt: no detail on what it's asking.
-  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
-  const stuck = (await outcome(watch(c, c.root))).stderr;
-  assert.match(stuck, /0001-csv's build is waiting for a reply\. .*claude attach sdlc-csv.*\/sdlc:launch csv/);
-  assert.doesNotMatch(stuck, /undefined/);
-
-  c.sessions([]);
-  assert.match((await outcome(watch(c, c.root))).stderr, /stopped at build/);
-});
-
-test('a main session hears when a build finishes, once the session is done with it', async (t) => {
-  const c = repo(t);
-  const dir = finished(c);
-  const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
-  c.sessions([{ ...session, status: 'busy', state: 'working' }]);
-  assert.equal((await outcome(watch(c, c.root), 400)).code, null, 'still opening its pull request');
-
-  c.sessions([{ ...session, status: 'idle', state: 'done' }]);
-  assert.match((await outcome(watch(c, c.root))).stderr, /ready to merge/);
-});
-
-test('a main session isn\'t told the same thing twice, or woken by a healthy build', async (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  const session = { kind: 'background', id: 'abc', cwd: dir, startedAt: 1 };
-  c.sessions([{ ...session, status: 'busy', state: 'working' }]);
-  assert.equal((await outcome(watch(c, c.root), 400)).code, null);
-
-  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
-  assert.equal((await outcome(watch(c, c.root))).code, 2);
-  assert.equal((await outcome(watch(c, c.root), 400)).code, null);
-
-  c.sessions([{ ...session, status: 'busy', state: 'working' }]);
-  await outcome(watch(c, c.root), 1000);
-  c.sessions([{ ...session, status: 'idle', state: 'blocked' }]);
-  assert.equal((await outcome(watch(c, c.root))).code, 2, 'stuck again is news again');
-});
-
-test('a main session carries on when any of its drafts is approved', async (t) => {
-  const c = repo(t);
-  c.sdlc(c.root, 'new', 'csv');
-  c.sdlc(c.root, 'new', 'other');
-  fs.writeFileSync(itemFile(c.root, 'intent.md'), 'the intent');
-  fs.writeFileSync(itemFile(c.root, 'intent.md', '0002-other'), 'another');
-
-  const watcher = watch(c, c.root);
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  c.human(c.root, 'approve', 'other');
-  const result = await outcome(watcher);
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /approved 0002-other, so continue with \/sdlc:next 0002-other/);
-});
-
-test('a build\'s own session doesn\'t watch the others', async (t) => {
-  const c = repo(t);
-  const dir = launched(c);
-  launched(c, 'other', '0002-other');
-  const watcher = watch(c, dir);
-  assert.equal((await outcome(watcher, 400)).code, 0);
-});
 
 // Stands in for gh, with a pull request that's open and checks that pass unless told not to.
 const FAKE_GH = `#!/bin/sh
@@ -761,7 +623,7 @@ test('nothing merges without a person\'s sign-off on the review as it is', (t) =
   assert.match(c.sdlc(other, 'merge').stderr, /merge sign-off is missing or out of date/);
 
   const before = c.gitOut(c.root, 'rev-parse', 'HEAD');
-  const third = launched(c, 'third', '0003-third');
+  const third = building(c, 'third', '0003-third');
   assert.match(c.sdlc(third, 'merge', 'third').stderr, /at build, not finished/);
   assert.equal(c.gitOut(c.root, 'rev-parse', 'HEAD'), before);
 });

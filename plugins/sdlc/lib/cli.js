@@ -26,8 +26,10 @@ Commands:
   init [--setup C] [--verify C] [--quick C] [--format C] [--critical a,b] [--protected a,b]
                                      Set up the factory in this repo
   setup                              Build this worktree's environment
-  new <slug> [--files a,b] [--track critical]
-                                     Start a work item. Critical paths add sign-offs
+  new <slug> [--files a,b] [--track critical] [--request <text>]
+                                     Start a work item. On the default branch it gets
+                                     its own worktree and window. Critical paths add
+                                     sign-offs
   status [<id>] [--json]             Show work items and the next action
   diff [<id>]                        Show what changed in a document since its approval
   changed [<id>]                     List the files this item has changed
@@ -35,8 +37,8 @@ Commands:
   verify [<id>]                      Run the verify command and record evidence
   advance [<id>]                     Move to the next stage if its gate passes
   rework [<id>] --reason <text>      Send verify or review back to build
-  launch <id>                        Move an approved draft to a worktree and build
-                                     it in a background session, or restart a build
+  slices [<id>] [--json]             List the slices and which can be built now
+  merge-slice <worktree>             Bring in a slice built in a worktree of its own
   sync [<id>]                        Bring the default branch into a change
   merge [<id>]                       Merge a finished change a person signed off
   cleanup [<id>]                     Remove the worktrees of merged changes
@@ -69,6 +71,7 @@ const OPTIONS = {
   format: { type: 'string' },
   critical: { type: 'string' },
   protected: { type: 'string' },
+  request: { type: 'string' },
 };
 
 function requireRoot() {
@@ -146,15 +149,12 @@ function status(positionals, values) {
   }
   console.log(`Factory root: ${root}`);
   const elsewhere = positionals[0] ? [] : workspace.elsewhere(root);
-  const sessions = elsewhere.length > 0 ? parallel.backgroundSessions() : null;
   if (items.length === 0 && elsewhere.length === 0) {
     console.log(workspace.listIds(root).length === 0 ? 'No work items yet.' : 'No open work items.');
   }
   for (const item of items) console.log(describeLine(item, item.next));
   for (const { root: dir, item } of elsewhere) {
-    const session = parallel.describeSession(sessions, dir);
-    const where = [`in ${path.relative(root, dir)}`, ...(session ? [`session ${session}`] : [])].join(', ');
-    console.log(describeLine(item, nextOf(dir, item), `  (${where})`));
+    console.log(describeLine(item, nextOf(dir, item), `  (in ${path.relative(root, dir)})`));
   }
   return 0;
 }
@@ -170,8 +170,19 @@ function createNew(positionals, values) {
   if (machine.trackRank(track) < machine.trackRank(classified)) {
     throw new SdlcError(`these files need at least the '${classified}' track, not '${track}'`);
   }
-  const item = workspace.createItem(root, slug, track, machine.firstStage(track), files);
-  console.log(`${item.id}  ${item.track}  ${item.stage}`);
+  if (!parallel.startsWorktree(root)) {
+    const item = workspace.createItem(root, slug, track, machine.firstStage(track), files);
+    if (values.request) workspace.writeArtifact(root, item, 'request.md', `${values.request.trim()}\n`);
+    console.log(`${item.id}  ${item.track}  ${item.stage}`);
+    return 0;
+  }
+  const { dir, item } = parallel.start(root, { slug, track, files, request: values.request });
+  console.log(`${item.id}  ${item.track}  ${item.stage}  in ${dir}, on branch ${item.branch}`);
+  console.log(
+    parallel.openWindow(dir)
+      ? 'A VS Code window has opened on it. Open Claude Code there and type /sdlc:next to start.'
+      : `Open ${dir} in its own window, start Claude Code there, and type /sdlc:next to start.`,
+  );
   return 0;
 }
 
@@ -274,10 +285,28 @@ function rework(positionals, values) {
   return 0;
 }
 
-function launch(positionals) {
-  if (!positionals[0]) throw new SdlcError('sdlc launch needs the name of a change', 2);
-  const dir = parallel.launch(requireRoot(), positionals[0]);
-  console.log(`${positionals[0]} is building in ${dir}.`);
+function slices(positionals, values) {
+  const root = requireRoot();
+  const item = workspace.activeItem(root, positionals[0]);
+  const result = parallel.slices(root, item);
+  if (values.json) {
+    console.log(JSON.stringify({ id: item.id, ...result }));
+    return 0;
+  }
+  for (const { id, title, state, waiting } of result.slices) {
+    console.log(`${id}  ${state === 'waiting' ? `waits on ${waiting.join(', ')}` : state}  ${title}`.trimEnd());
+  }
+  console.log(
+    result.parallel
+      ? 'Slices that are ready can build at the same time.'
+      : 'Slices build one at a time. Set worktree.baseRef to "head" in .claude/settings.json to build them at the same time.',
+  );
+  return 0;
+}
+
+function mergeSlice(positionals) {
+  if (!positionals[0]) throw new SdlcError('sdlc merge-slice needs the worktree the slice was built in', 2);
+  console.log(parallel.mergeSlice(requireRoot(), positionals[0]));
   return 0;
 }
 
@@ -454,7 +483,8 @@ function dispatch(argv) {
     verify,
     advance,
     rework,
-    launch,
+    slices,
+    'merge-slice': mergeSlice,
     sync,
     merge,
     cleanup,

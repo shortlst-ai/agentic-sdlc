@@ -1,4 +1,4 @@
 schema_version: "1.1"
-name: new-on-the-default-branch-is-a-draft
+name: new-on-the-default-branch-opens-a-worktree
 context:
   scaffold_script: fixture.sh

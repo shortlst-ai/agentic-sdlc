@@ -23,9 +23,9 @@ Everything happens on your machine, in your repository, unless a step below says
 
 **In your repository**
 
-- `/sdlc:init` writes `.sdlc/config.json`, adds `.claude/worktrees/` to `.gitignore`, and edits `.claude/settings.json`. That edit allows `Bash(sdlc *)`, so agents can run the factory's own command without asking, and sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. The `sdlc` command can't approve or abandon anything, and `sdlc merge` merges only a change a person signed off, which is why allowing it is safe
+- `/sdlc:init` writes `.sdlc/config.json`, adds `.claude/worktrees/` to `.gitignore`, and edits `.claude/settings.json`. That edit allows `Bash(sdlc *)`, so agents can run the factory's own command without asking, sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, and sets `worktree.baseRef` to `head`, so a slice built in a worktree of its own starts from the change's branch. The `sdlc` command can't approve or abandon anything, and `sdlc merge` merges only a change a person signed off, which is why allowing it is safe
 - Each change gets a folder under `.sdlc/work/`. `sdlc` commits that folder as a change moves through its steps, on the change's own branch and never on your default branch
-- `/sdlc:launch` creates a Git worktree under `.claude/worktrees/` and a branch for the change
+- `/sdlc:new`, on your default branch, creates a Git worktree under `.claude/worktrees/` and a branch for the change. Slices built at the same time get worktrees there too, which `sdlc merge-slice` merges back and removes
 - `/sdlc:sync` merges your default branch into a change, and pushes the branch if it already has an upstream
 - `/sdlc:cleanup` removes the worktree and branch of a change that has merged
 
@@ -33,7 +33,7 @@ Everything happens on your machine, in your repository, unless a step below says
 
 - Your project's own setup, test, quick check, and format commands, which you agree to in `/sdlc:init`
 - `git`, for branches, worktrees, commits, merges, and pushes
-- `claude --bg`, to run each build in a background Claude Code session, and `claude agents`, `claude stop`, and `claude rm` to look after those sessions. They use your account and your default permission mode
+- VS Code's `code --new-window`, to open a window on a new change's worktree, when the session runs inside VS Code
 - `gh`, when your repo has a GitHub remote: to open a pull request for a finished change, and an issue for work found along the way. It uses your existing `gh` login
 
 **Hooks**

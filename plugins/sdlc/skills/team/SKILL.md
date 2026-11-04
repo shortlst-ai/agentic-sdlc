@@ -5,7 +5,7 @@ user-invocable: false
 
 You stay the team lead. Only you can talk to the person, so every gate stays with you.
 
-Call the Agent tool with both a `name` and a `subagent_type`, such as `name: builder-api` and `subagent_type: sdlc:builder`. With agent teams on, the `name` is what makes it a teammate. Don't pass `isolation`, which would make it a plain subagent.
+Call the Agent tool with both a `name` and a `subagent_type`, such as `name: builder-api` and `subagent_type: sdlc:builder`. With agent teams on, the `name` is what makes it a teammate. Don't pass `isolation`, which would make it a plain subagent. The one exception is a builder for a slice built at the same time as others, which `/sdlc:build` spawns with `isolation: "worktree"`.
 
 When teams are off, as in CI, the same call runs a subagent, so nothing else changes.
 

@@ -22,10 +22,28 @@ function parseScope(text) {
   return globs;
 }
 
-// A spec with no slice headings is one slice.
+const SLICE_HEADING = /^#{2,4}\s+(S\d+)\b:?\s*(.*)$/gm;
+const AFTER = /\(after ([^)]*)\)\s*$/i;
+
+// Each slice in the order written, with the slices its heading says it comes after,
+// as in `### S3: Export it (after S1, S2)`. A spec with no slice headings is one slice.
+function sliceList(text) {
+  const found = new Map();
+  for (const [, id, rest] of (text ?? '').matchAll(SLICE_HEADING)) {
+    if (found.has(id)) continue;
+    const after = AFTER.exec(rest);
+    const title = rest.replace(AFTER, '').trim();
+    found.set(id, { id, title, after: after ? [...after[1].matchAll(/S\d+/g)].map((match) => match[0]) : [] });
+  }
+  return found.size > 0 ? [...found.values()] : [{ id: 'S1', title: '', after: [] }];
+}
+
 function parseSlices(text) {
-  const ids = [...(text ?? '').matchAll(/^#{2,4}\s+(S\d+)\b/gm)].map((match) => match[1]);
-  return ids.length > 0 ? [...new Set(ids)] : ['S1'];
+  return sliceList(text).map(({ id }) => id);
+}
+
+function reviewPassed(root, item, id) {
+  return reviewVerdict(workspace.readArtifact(root, item, `evidence/reviews/${id}.md`)) === 'pass';
 }
 
 // Test files are always in scope: the spec names the code, and the verifier adds
@@ -147,7 +165,9 @@ module.exports = {
   parseSlices,
   proseWords,
   reviewBuild,
+  reviewPassed,
   reviewSlices,
+  sliceList,
   sizeWarnings,
   stopCheck,
 };
